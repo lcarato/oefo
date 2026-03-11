@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OEFO Pipeline Dashboard</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/recharts@2.10.3/dist/Recharts.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+        }
+        .dashboard-container {
+            background: linear-gradient(135deg, #0f172a 0%, #1a202c 100%);
+            color: #e2e8f0;
+        }
+        .card {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(71, 85, 105, 0.3);
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+        .card:hover {
+            border-color: rgba(100, 116, 139, 0.5);
+            box-shadow: 0 10px 15px rgba(0, 0, 0, 0.4);
+            transition: all 0.3s ease;
+        }
+        .kpi-card {
+            padding: 1.5rem;
+            text-align: center;
+        }
+        .kpi-value {
+            font-size: 1.875rem;
+            font-weight: 700;
+            color: #06b6d4;
+            margin: 0.5rem 0;
+            transition: all 0.4s ease;
+        }
+        .kpi-label {
+            font-size: 0.875rem;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .tab-button {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            background: rgba(51, 65, 85, 0.5);
+            color: #cbd5e1;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 0.5rem;
+            margin-right: 0.5rem;
+            transition: all 0.3s ease;
+        }
+        .tab-button.active {
+            background: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3);
+        }
+        .tab-button:hover:not(.active) {
+            background: rgba(71, 85, 105, 0.7);
+        }
+        .chart-container {
+            padding: 1.5rem;
+            height: 300px;
+        }
+        .recharts-wrapper {
+            width: 100% !important;
+            height: 100% !important;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 600;
+        }
+        .status-accepted { background: rgba(34, 197, 94, 0.2); color: #86efac; }
+        .status-flagged  { background: rgba(251, 146, 60, 0.2); color: #fed7aa; }
+        .status-rejected { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+
+        /* Live streaming indicator */
+        .stream-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        .stream-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            transition: background 0.3s ease;
+        }
+        .stream-dot.connected {
+            background: #22c55e;
+            box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+            animation: pulse-green 2s infinite;
+        }
+        .stream-dot.connecting {
+            background: #f59e0b;
+            animation: pulse-amber 1s infinite;
+        }
+        .stream-dot.disconnected {
+            background: #ef4444;
+        }
+        @keyframes pulse-green {
+            0%, 100% { box-shadow: 0 0 4px rgba(34, 197, 94, 0.4); }
+            50% { box-shadow: 0 0 12px rgba(34, 197, 94, 0.8); }
+        }
+        @keyframes pulse-amber {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        /* Value change flash animation */
+        @keyframes flash-update {
+            0% { color: #22d3ee; }
+            50% { color: #67e8f9; }
+            100% { color: #06b6d4; }
+        }
+        .kpi-updated {
+            animation: flash-update 0.6s ease;
+        }
+    </style>
+</head>
+<body class="dashboard-container">
+    <div id="root"></div>
+
+    <script>
+        // =====================================================================
+        // Embedded fallback data (used when not connected to streaming server)
+        // =====================================================================
+        const FALLBACK_DATA = {
+            "generated_at": "2026-03-11T08:01:37.521215Z",
+            "pipeline_version": "0.1.0",
+            "scraping": {
+                "total_documents": 1243,
+                "by_source": {
+                    "EBRD": 111, "FERC": 111, "Ofgem": 110, "IFC": 109,
+                    "GCF": 105, "ANEEL": 104, "SEC_EDGAR": 99, "AER": 98
+                },
+                "by_type": {
+                    "bond_prospectus": 220, "regulatory_filing": 214,
+                    "corporate_filing": 212, "DFI_disclosure": 201
+                }
+            },
+            "extraction": {
+                "total_extractions": 847,
+                "by_tier": { "tier_1_text": 293, "tier_2_ocr": 289, "tier_3_vision": 265 }
+            },
+            "qc": {
+                "total_reviewed": 847,
+                "auto_accepted": 201, "flagged_for_review": 519, "rejected": 127,
+                "auto_accept_rate": 0.237, "mean_score": 0.698,
+                "score_histogram": {
+                    "0.4": 127, "0.5": 156, "0.6": 138, "0.7": 148,
+                    "0.8": 157, "0.9": 120, "1.0": 1
+                }
+            },
+            "database": {
+                "total_observations": 847, "unique_countries": 20, "unique_technologies": 20,
+                "by_year": {
+                    "2015": 71, "2016": 76, "2017": 93, "2018": 80, "2019": 72,
+                    "2020": 75, "2021": 74, "2022": 92, "2023": 81, "2024": 56, "2025": 77
+                },
+                "by_country": {
+                    "JPN": 53, "AUS": 51, "FRA": 47, "GBR": 46, "COL": 45,
+                    "ESP": 45, "DEU": 45, "IDN": 44, "CHL": 44, "MEX": 43,
+                    "IND": 42, "USA": 42, "NGA": 41, "KEN": 41, "ITA": 40,
+                    "VNM": 39, "ZAF": 37, "PHL": 37, "TUR": 34, "BRA": 31
+                },
+                "by_scale": {
+                    "mega_project": 235, "regulated_asset": 211,
+                    "commercial_industrial": 208, "utility_scale": 193
+                },
+                "by_value_chain": {
+                    "electricity_storage": 181, "generation": 174,
+                    "carbon_management": 173, "electricity_transmission": 172,
+                    "fuel_production": 147
+                }
+            },
+            "coverage": {
+                "technologies_by_country_count": {
+                    "hydro_large": 20, "gas_ccgt": 20, "wind_offshore_fixed": 19,
+                    "solar_csp": 19, "hydro_small": 19, "wind_offshore_floating": 19,
+                    "hydrogen_green": 18, "wind_onshore": 18, "storage_battery_grid": 18,
+                    "coal_power": 18, "biofuels": 17, "distribution": 17,
+                    "solar_pv": 17, "nuclear_large": 17, "ev_charging": 17,
+                    "transmission": 16, "ccs_industrial": 16, "geothermal_power": 16,
+                    "lng_liquefaction": 16, "biomass_power": 15
+                }
+            },
+            "financials": {
+                "kd_nominal": { "mean": 6.93 },
+                "ke_nominal": { "mean": 11.95 },
+                "wacc_nominal": { "mean": 7.53 },
+                "leverage_debt_pct": { "mean": 65.56 },
+                "kd_by_technology": {
+                    "solar_csp": { "mean": 6.3 }, "wind_offshore_fixed": { "mean": 6.68 },
+                    "transmission": { "mean": 6.51 }, "hydro_large": { "mean": 7.29 },
+                    "storage_battery_grid": { "mean": 6.91 }, "gas_ccgt": { "mean": 6.6 },
+                    "ccs_industrial": { "mean": 7.18 }, "solar_pv": { "mean": 7.31 },
+                    "nuclear_large": { "mean": 7.62 }, "wind_onshore": { "mean": 6.78 },
+                    "biofuels": { "mean": 6.91 }, "hydro_small": { "mean": 6.91 },
+                    "distribution": { "mean": 7.37 }, "wind_offshore_floating": { "mean": 5.94 },
+                    "ev_charging": { "mean": 6.42 }
+                },
+                "wacc_by_country": {
+                    "JPN": { "mean": 5.66 }, "AUS": { "mean": 5.38 }, "FRA": { "mean": 6.0 },
+                    "GBR": { "mean": 5.61 }, "COL": { "mean": 10.58 }, "ESP": { "mean": 5.67 },
+                    "DEU": { "mean": 5.73 }, "IDN": { "mean": 10.22 }, "CHL": { "mean": 5.49 },
+                    "MEX": { "mean": 5.52 }, "IND": { "mean": 10.34 }, "USA": { "mean": 5.54 },
+                    "NGA": { "mean": 10.1 }, "KEN": { "mean": 9.59 }, "ITA": { "mean": 5.4 }
+                }
+            }
+        };
+
+        // =====================================================================
+        // React Components
+        // =====================================================================
+        const { useState, useEffect, useRef, useCallback } = React;
+        const { BarChart, Bar, PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis,
+                CartesianGrid, Tooltip, Legend, ResponsiveContainer } = Recharts;
+
+        const COLORS = {
+            accepted: '#22c55e', flagged: '#f97316', rejected: '#ef4444',
+            primary: '#06b6d4', secondary: '#0ea5e9', accent: '#10b981',
+            warn: '#f59e0b', error: '#ef4444'
+        };
+
+        const tooltipStyle = {
+            backgroundColor: '#1e293b', border: '1px solid #475569',
+            borderRadius: '0.5rem', color: '#e2e8f0'
+        };
+
+        // ---- SSE Stream Hook ---------------------------------------------------
+        function useSSEStream(url) {
+            const [data, setData] = useState(FALLBACK_DATA);
+            const [status, setStatus] = useState('connecting'); // connected | connecting | disconnected
+            const [updateCount, setUpdateCount] = useState(0);
+            const esRef = useRef(null);
+            const retryRef = useRef(0);
+
+            const connect = useCallback(() => {
+                if (esRef.current) {
+                    esRef.current.close();
+                }
+                setStatus('connecting');
+
+                const es = new EventSource(url);
+                esRef.current = es;
+
+                es.addEventListener('snapshot', (event) => {
+                    try {
+                        const snapshot = JSON.parse(event.data);
+                        setData(snapshot);
+                        setStatus('connected');
+                        setUpdateCount(c => c + 1);
+                        retryRef.current = 0;
+                    } catch (err) {
+                        console.warn('Failed to parse SSE snapshot:', err);
+                    }
+                });
+
+                es.onerror = () => {
+                    es.close();
+                    setStatus('disconnected');
+                    // Exponential backoff reconnect (max 30s)
+                    const delay = Math.min(1000 * Math.pow(2, retryRef.current), 30000);
+                    retryRef.current += 1;
+                    setTimeout(connect, delay);
+                };
+
+                es.onopen = () => {
+                    setStatus('connected');
+                    retryRef.current = 0;
+                };
+            }, [url]);
+
+            useEffect(() => {
+                connect();
+                return () => {
+                    if (esRef.current) esRef.current.close();
+                };
+            }, [connect]);
+
+            return { data, status, updateCount };
+        }
+
+        // ---- Stream status indicator -------------------------------------------
+        function StreamIndicator({ status, updateCount, generatedAt }) {
+            const label = {
+                connected: 'Live',
+                connecting: 'Connecting',
+                disconnected: 'Reconnecting'
+            }[status] || 'Unknown';
+
+            const timeStr = generatedAt
+                ? new Date(generatedAt).toLocaleTimeString('en-US', {
+                    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+                  })
+                : '--:--:--';
+
+            return React.createElement('div', { className: 'stream-status' },
+                React.createElement('span', { className: `stream-dot ${status}` }),
+                React.createElement('span', { style: { color: status === 'connected' ? '#86efac' : status === 'connecting' ? '#fde68a' : '#fca5a5' } }, label),
+                React.createElement('span', { style: { color: '#64748b', marginLeft: '0.5rem' } },
+                    `Updated ${timeStr}`),
+                status === 'connected'
+                    ? React.createElement('span', { style: { color: '#475569', marginLeft: '0.5rem' } },
+                        `(${updateCount} updates)`)
+                    : null
+            );
+        }
+
+        // ---- KPI Card ----------------------------------------------------------
+        function KPICard({ label, value, unit, updated }) {
+            return React.createElement('div', { className: 'card kpi-card' },
+                React.createElement('div', { className: 'kpi-label' }, label),
+                React.createElement('div', {
+                    className: `kpi-value ${updated ? 'kpi-updated' : ''}`,
+                    key: value  // force re-render animation on value change
+                }, value, unit || '')
+            );
+        }
+
+        // ---- Pipeline Monitor Tab ----------------------------------------------
+        function PipelineMonitor({ data, updated }) {
+            const d = data;
+            const scraping = d.scraping || {};
+            const extraction = d.extraction || {};
+            const qc = d.qc || {};
+            const db = d.database || {};
+
+            const scrapingData = Object.entries(scraping.by_source || {}).map(
+                ([name, value]) => ({ name, value })
+            );
+            const extractionData = [
+                { name: 'Tier 1 (Text)', value: (extraction.by_tier || {}).tier_1_text || 0 },
+                { name: 'Tier 2 (OCR)', value: (extraction.by_tier || {}).tier_2_ocr || 0 },
+                { name: 'Tier 3 (Vision)', value: (extraction.by_tier || {}).tier_3_vision || 0 }
+            ];
+            const qcScores = Object.entries(qc.score_histogram || {}).map(
+                ([bucket, count]) => ({ score: bucket, count })
+            );
+            const qcStatusData = [
+                { name: 'Auto Accepted', value: qc.auto_accepted || 0, color: COLORS.accepted },
+                { name: 'Flagged', value: qc.flagged_for_review || 0, color: COLORS.flagged },
+                { name: 'Rejected', value: qc.rejected || 0, color: COLORS.rejected }
+            ];
+            const sourceTypeData = Object.entries(scraping.by_type || {}).map(
+                ([name, value]) => ({ name: name.replace(/_/g, ' '), value })
+            );
+            const pieColors = ['#0ea5e9', '#06b6d4', '#0891b2', '#0d9488'];
+
+            const totalObs = db.total_observations || extraction.total_extractions || 0;
+            const autoRate = qc.auto_accept_rate != null ? (qc.auto_accept_rate * 100).toFixed(1) : '—';
+            const meanScore = qc.mean_score != null ? qc.mean_score.toFixed(3) : '—';
+
+            return React.createElement('div', { className: 'space-y-6' },
+                // KPIs
+                React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4' },
+                    React.createElement(KPICard, { label: 'Documents Scraped', value: (scraping.total_documents || 0).toLocaleString(), updated }),
+                    React.createElement(KPICard, { label: 'Observations Extracted', value: totalObs.toLocaleString(), updated }),
+                    React.createElement(KPICard, { label: 'QC Auto-Accept Rate', value: autoRate, unit: '%', updated }),
+                    React.createElement(KPICard, { label: 'Mean QC Score', value: meanScore, updated }),
+                    React.createElement(KPICard, { label: 'Countries Covered', value: db.unique_countries || 0, updated }),
+                    React.createElement(KPICard, { label: 'Technologies Tracked', value: db.unique_technologies || 0, updated })
+                ),
+
+                // Charts row 1
+                React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-2 gap-6' },
+                    React.createElement('div', { className: 'card' },
+                        React.createElement('h3', { className: 'text-lg font-bold p-4 border-b border-slate-700' }, 'Scraping Sources'),
+                        React.createElement('div', { className: 'chart-container' },
+                            React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+                                React.createElement(BarChart, { data: scrapingData, layout: 'vertical' },
+                                    React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#475569' }),
+                                    React.createElement(XAxis, { type: 'number', tick: { fill: '#94a3b8', fontSize: 12 } }),
+                                    React.createElement(YAxis, { dataKey: 'name', type: 'category', tick: { fill: '#94a3b8', fontSize: 11 }, width: 80 }),
+                                    React.createElement(Tooltip, { contentStyle: tooltipStyle }),
+                                    React.createElement(Bar, { dataKey: 'value', fill: COLORS.primary, radius: [0, 8, 8, 0], isAnimationActive: true, animationDuration: 600 })
+                                )
+                            )
+                        )
+                    ),
+                    React.createElement('div', { className: 'card' },
+                        React.createElement('h3', { className: 'text-lg font-bold p-4 border-b border-slate-700' }, 'Extraction Tiers'),
+                        React.createElement('div', { className: 'chart-container flex items-center justify-center' },
+                            React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+                                React.createElement(PieChart, null,
+                                    React.createElement(Pie, { data: extractionData, cx: '50%', cy: '50%', innerRadius: 60, outerRadius: 90, paddingAngle: 2, dataKey: 'value', isAnimationActive: true, animationDuration: 600 },
+                                        React.createElement(Cell, { fill: '#06b6d4' }),
+                                        React.createElement(Cell, { fill: '#0ea5e9' }),
+                                        React.createElement(Cell, { fill: '#0891b2' })
+                                    ),
+                                    React.createElement(Tooltip, { contentStyle: tooltipStyle }),
+                                    React.createElement(Legend, { wrapperStyle: { paddingTop: '1rem' } })
+                                )
+                            )
+                        )
+                    )
+                ),
+
+                // Charts row 2
+                React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-2 gap-6' },
+                    React.createElement('div', { className: 'card' },
+                        React.createElement('h3', { className: 'text-lg font-bold p-4 border-b border-slate-700' }, 'QC Score Distribution'),
+                        React.createElement('div', { className: 'chart-container' },
+                            React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+                                React.createElement(BarChart, { data: qcScores },
+                                    React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#475569' }),
+                                    React.createElement(XAxis, { dataKey: 'score', tick: { fill: '#94a3b8', fontSize: 12 } }),
+                                    React.createElement(YAxis, { tick: { fill: '#94a3b8', fontSize: 12 } }),
+                                    React.createElement(Tooltip, { contentStyle: tooltipStyle }),
+                                    React.createElement(Bar, { dataKey: 'count', fill: COLORS.secondary, radius: [8, 8, 0, 0], isAnimationActive: true, animationDuration: 600 })
+                                )
+                            )
+                        )
+                    ),
+                    React.createElement('div', { className: 'card' },
+                        React.createElement('h3', { className: 'text-lg font-bold p-4 border-b border-slate-700' }, 'QC Status Breakdown'),
+                        React.createElement('div', { className: 'chart-container flex items-center justify-center' },
+                            React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+                                React.createElement(PieChart, null,
+                                    React.createElement(Pie, { data: qcStatusData, cx: '50%', cy: '50%', outerRadius: 90, paddingAngle: 2, dataKey: 'value', isAnimationActive: true, animationDuration: 600 },
+                                        qcStatusData.map((entry, i) =>
+                                            React.createElement(Cell, { key: 'c' + i, fill: entry.color })
+                                        )
+                                    ),
+                                    React.createElement(Tooltip, { contentStyle: tooltipStyle }),
+                                    React.createElement(Legend, { wrapperStyle: { paddingTop: '1rem' } })
+                                )
+                            )
+                        )
+                    )
+                ),
+
+                // Source type
+                React.createElement('div', { className: 'card' },
+                    React.createElement('h3', { className: 'text-lg font-bold p-4 border-b border-slate-700' }, 'Source Type Mix'),
+                    React.createElement('div', { className: 'chart-container flex items-center justify-center' },
+                        React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+                            React.createElement(PieChart, null,
+                                React.createElement(Pie, { data: sourceTypeData, cx: '50%', cy: '50%', outerRadius: 90, paddingAngle: 2, dataKey: 'value', isAnimationActive: true, animationDuration: 600 },
+                                    sourceTypeData.map((_, i) =>
+                                        React.createElement(Cell, { key: 's' + i, fill: pieColors[i % pieColors.length] })
+                                    )
+                                ),
+                                React.createElement(Tooltip, { contentStyle: tooltipStyle }),
+                                React.createElement(Legend, { wrapperStyle: { paddingTop: '1rem' } })
+                            )
+                        )
+                    )
+                )
+            );
+        }
+
+        // ---- Data Analytics Tab ------------------------------------------------
+        function DataAnalytics({ data, updated }) {
+            const d = data;
+            const db = d.database || {};
+            const fin = d.financials || {};
+            const cov = d.coverage || {};
+
+            const yearData = Object.entries(db.by_year || {}).map(
+                ([year, count]) => ({ year, observations: count })
+            );
+            const countryData = Object.entries(db.by_country || {})
+                .sort((a, b) => b[1] - a[1]).slice(0, 10)
+                .map(([country, count]) => ({ country, count }));
+
+            const kdTechData = Object.entries(fin.kd_by_technology || {})
+                .sort((a, b) => (b[1].mean || 0) - (a[1].mean || 0)).slice(0, 10)
+                .map(([tech, v]) => ({
+                    tech: tech.replace(/_/g, ' ').toUpperCase(),
+                    kd: parseFloat((v.mean || 0).toFixed(2)),
+                    fill: (v.mean || 0) > 8 ? '#f97316' : '#10b981'
+                }));
+
+            const waccCountryData = Object.entries(fin.wacc_by_country || {})
+                .sort((a, b) => (b[1].mean || 0) - (a[1].mean || 0))
+                .map(([country, v]) => ({ country, wacc: parseFloat((v.mean || 0).toFixed(2)) }));
+
+            const techCoverageData = Object.entries(cov.technologies_by_country_count || {})
+                .sort((a, b) => b[1] - a[1]).slice(0, 10)
+                .map(([tech, count]) => ({ tech: tech.replace(/_/g, ' ').toUpperCase(), countries: count }));
+
+            const scaleData = Object.entries(db.by_scale || {}).map(
+                ([name, value]) => ({ name: name.replace(/_/g, ' '), value })
+            );
+            const valueChainData = Object.entries(db.by_value_chain || {}).map(
+                ([name, value]) => ({ name: name.replace(/_/g, ' '), value })
+            );
+
+            const getWACCColor = (w) => w < 6 ? '#10b981' : w < 8 ? '#f59e0b' : '#ef4444';
+            const pieColors2 = ['#06b6d4', '#0ea5e9', '#0891b2', '#0d9488'];
+            const pieColors3 = ['#10b981', '#0ea5e9', '#f59e0b', '#f97316', '#ef4444'];
+
+            const kd = fin.kd_nominal || {};
+            const ke = fin.ke_nominal || {};
+            const wacc = fin.wacc_nominal || {};
+            const lev = fin.leverage_debt_pct || {};
+            const totalObs = db.total_observations || 0;
+
+            return React.createElement('div', { className: 'space-y-6' },
+                // Financial KPIs
+                React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4' },
+                    React.createElement(KPICard, { label: 'Mean Kd', value: kd.mean != null ? kd.mean.toFixed(2) : '—', unit: '%', updated }),
+                    React.createElement(KPICard, { label: 'Mean Ke', value: ke.mean != null ? ke.mean.toFixed(2) : '—', unit: '%', updated }),
+                    React.createElement(KPICard, { label: 'Mean WACC', value: wacc.mean != null ? wacc.mean.toFixed(2) : '—', unit: '%', updated }),
+                    React.createElement(KPICard, { label: 'Mean Leverage', value: lev.mean != null ? lev.mean.toFixed(1) : '—', unit: '%', updated }),
+                    React.createElement(KPICard, { label: 'Observations', value: totalObs.toLocaleString(), updated })
+                ),
+
+                // Kd by tech + WACC by country
+                React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-2 gap-6' },
+                    React.createElement('div', { className: 'card' },
+                        React.createElement('h3', { className: 'text-lg font-bold p-4 border-b border-slate-700' }, 'Kd by Technology (Top 10)'),
+                        React.createElement('div', { className: 'chart-container' },
+                            React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+                                React.createElement(BarChart, { data: kdTechData, layout: 'vertical' },
+                                    React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#475569' }),
+                                    React.createElement(XAxis, { type: 'number', tick: { fill: '#94a3b8', fontSize: 12 } }),
+                                    React.createElement(YAxis, { dataKey: 'tech', type: 'category', tick: { fill: '#94a3b8', fontSize: 10 }, width: 120 }),
+                                    React.createElement(Tooltip, { contentStyle: tooltipStyle }),
+                                    React.createElement(Bar, { dataKey: 'kd', radius: [0, 8, 8, 0], isAnimationActive: true, animationDuration: 600 },
+                                        kdTechData.map((e, i) => React.createElement(Cell, { key: 'kd' + i, fill: e.fill }))
+                                    )
+                                )
+                            )
+                        )
+                    ),
+                    React.createElement('div', { className: 'card' },
+                        React.createElement('h3', { className: 'text-lg font-bold p-4 border-b border-slate-700' }, 'WACC by Country'),
+                        React.createElement('div', { className: 'chart-container' },
+                            React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+                                React.createElement(BarChart, { data: waccCountryData, layout: 'vertical' },
+                                    React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#475569' }),
+                                    React.createElement(XAxis, { type: 'number', tick: { fill: '#94a3b8', fontSize: 12 } }),
+                                    React.createElement(YAxis, { dataKey: 'country', type: 'category', tick: { fill: '#94a3b8', fontSize: 11 }, width: 50 }),
+                                    React.createElement(Tooltip, { contentStyle: tooltipStyle }),
+                                    React.createElement(Bar, { dataKey: 'wacc', radius: [0, 8, 8, 0], isAnimationActive: true, animationDuration: 600 },
+                                        waccCountryData.map((e, i) => React.createElement(Cell, { key: 'w' + i, fill: getWACCColor(e.wacc) }))
+                                    )
+                                )
+                            )
+                        )
+                    )
+                ),
+
+                // Year trend + tech coverage
+                React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-2 gap-6' },
+                    React.createElement('div', { className: 'card' },
+                        React.createElement('h3', { className: 'text-lg font-bold p-4 border-b border-slate-700' }, 'Observations by Year'),
+                        React.createElement('div', { className: 'chart-container' },
+                            React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+                                React.createElement(LineChart, { data: yearData },
+                                    React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#475569' }),
+                                    React.createElement(XAxis, { dataKey: 'year', tick: { fill: '#94a3b8', fontSize: 11 } }),
+                                    React.createElement(YAxis, { tick: { fill: '#94a3b8', fontSize: 12 } }),
+                                    React.createElement(Tooltip, { contentStyle: tooltipStyle }),
+                                    React.createElement(Line, { type: 'monotone', dataKey: 'observations', stroke: COLORS.primary, strokeWidth: 2, dot: { fill: COLORS.primary, r: 4 }, activeDot: { r: 6 }, isAnimationActive: true, animationDuration: 600 })
+                                )
+                            )
+                        )
+                    ),
+                    React.createElement('div', { className: 'card' },
+                        React.createElement('h3', { className: 'text-lg font-bold p-4 border-b border-slate-700' }, 'Technology Coverage (by Country Count)'),
+                        React.createElement('div', { className: 'chart-container' },
+                            React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+                                React.createElement(BarChart, { data: techCoverageData },
+                                    React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#475569' }),
+                                    React.createElement(XAxis, { dataKey: 'tech', tick: { fill: '#94a3b8', fontSize: 9, angle: -45, textAnchor: 'end', height: 100 } }),
+                                    React.createElement(YAxis, { tick: { fill: '#94a3b8', fontSize: 12 } }),
+                                    React.createElement(Tooltip, { contentStyle: tooltipStyle }),
+                                    React.createElement(Bar, { dataKey: 'countries', fill: COLORS.accent, radius: [8, 8, 0, 0], isAnimationActive: true, animationDuration: 600 })
+                                )
+                            )
+                        )
+                    )
+                ),
+
+                // Countries + value chain
+                React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-2 gap-6' },
+                    React.createElement('div', { className: 'card' },
+                        React.createElement('h3', { className: 'text-lg font-bold p-4 border-b border-slate-700' }, 'Top 10 Countries by Observations'),
+                        React.createElement('div', { className: 'chart-container' },
+                            React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+                                React.createElement(BarChart, { data: countryData },
+                                    React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#475569' }),
+                                    React.createElement(XAxis, { dataKey: 'country', tick: { fill: '#94a3b8', fontSize: 12 } }),
+                                    React.createElement(YAxis, { tick: { fill: '#94a3b8', fontSize: 12 } }),
+                                    React.createElement(Tooltip, { contentStyle: tooltipStyle }),
+                                    React.createElement(Bar, { dataKey: 'count', fill: COLORS.secondary, radius: [8, 8, 0, 0], isAnimationActive: true, animationDuration: 600 })
+                                )
+                            )
+                        )
+                    ),
+                    React.createElement('div', { className: 'card' },
+                        React.createElement('h3', { className: 'text-lg font-bold p-4 border-b border-slate-700' }, 'Value Chain Distribution'),
+                        React.createElement('div', { className: 'chart-container flex items-center justify-center' },
+                            React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+                                React.createElement(PieChart, null,
+                                    React.createElement(Pie, { data: valueChainData, cx: '50%', cy: '50%', outerRadius: 90, paddingAngle: 2, dataKey: 'value', isAnimationActive: true, animationDuration: 600 },
+                                        valueChainData.map((_, i) => React.createElement(Cell, { key: 'vc' + i, fill: pieColors3[i % pieColors3.length] }))
+                                    ),
+                                    React.createElement(Tooltip, { contentStyle: tooltipStyle }),
+                                    React.createElement(Legend, { wrapperStyle: { paddingTop: '1rem', fontSize: '12px' } })
+                                )
+                            )
+                        )
+                    )
+                ),
+
+                // Scale mix
+                React.createElement('div', { className: 'card' },
+                    React.createElement('h3', { className: 'text-lg font-bold p-4 border-b border-slate-700' }, 'Scale Mix'),
+                    React.createElement('div', { className: 'chart-container flex items-center justify-center' },
+                        React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+                            React.createElement(PieChart, null,
+                                React.createElement(Pie, { data: scaleData, cx: '50%', cy: '50%', outerRadius: 90, paddingAngle: 2, dataKey: 'value', isAnimationActive: true, animationDuration: 600 },
+                                    scaleData.map((_, i) => React.createElement(Cell, { key: 'sc' + i, fill: pieColors2[i % pieColors2.length] }))
+                                ),
+                                React.createElement(Tooltip, { contentStyle: tooltipStyle }),
+                                React.createElement(Legend, { wrapperStyle: { paddingTop: '1rem' } })
+                            )
+                        )
+                    )
+                )
+            );
+        }
+
+        // ---- Main Dashboard Component ------------------------------------------
+        function Dashboard() {
+            const [activeTab, setActiveTab] = useState('pipeline');
+
+            // Determine SSE URL: same origin /stream, or fallback static
+            const sseUrl = window.location.origin + '/stream';
+            const { data, status, updateCount } = useSSEStream(sseUrl);
+
+            // Track whether the most recent update is "new" for flash animations
+            const [flashKey, setFlashKey] = useState(0);
+            const prevCount = useRef(0);
+            useEffect(() => {
+                if (updateCount > prevCount.current) {
+                    setFlashKey(k => k + 1);
+                    prevCount.current = updateCount;
+                }
+            }, [updateCount]);
+
+            const updated = flashKey > 0;
+
+            return React.createElement('div', { className: 'min-h-screen py-8 px-4 md:px-8' },
+                React.createElement('div', { className: 'max-w-7xl mx-auto' },
+
+                    // Header
+                    React.createElement('div', { className: 'mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4' },
+                        React.createElement('div', null,
+                            React.createElement('h1', { className: 'text-4xl font-bold text-white mb-2' }, 'OEFO Pipeline Dashboard'),
+                            React.createElement('p', { className: 'text-slate-400' }, 'Open Energy Finance Observatory')
+                        ),
+                        React.createElement(StreamIndicator, {
+                            status, updateCount, generatedAt: data.generated_at
+                        })
+                    ),
+
+                    // Tabs
+                    React.createElement('div', { className: 'mb-6 flex gap-2' },
+                        React.createElement('button', {
+                            className: 'tab-button' + (activeTab === 'pipeline' ? ' active' : ''),
+                            onClick: () => setActiveTab('pipeline')
+                        }, 'Pipeline Monitor'),
+                        React.createElement('button', {
+                            className: 'tab-button' + (activeTab === 'analytics' ? ' active' : ''),
+                            onClick: () => setActiveTab('analytics')
+                        }, 'Data Analytics')
+                    ),
+
+                    // Tab content
+                    React.createElement('div', null,
+                        activeTab === 'pipeline'
+                            ? React.createElement(PipelineMonitor, { data, updated, key: 'pm' + flashKey })
+                            : React.createElement(DataAnalytics, { data, updated, key: 'da' + flashKey })
+                    ),
+
+                    // Footer
+                    React.createElement('div', {
+                        className: 'mt-12 pt-6 border-t border-slate-700 text-center text-sm text-slate-500'
+                    },
+                        'Pipeline v', data.pipeline_version || '0.1.0',
+                        ' | Streaming from ', window.location.origin, '/stream'
+                    )
+                )
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(Dashboard));
+    </script>
+</body>
+</html>

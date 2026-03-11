@@ -1,0 +1,208 @@
+"""
+OEFO Configuration Module
+
+Exports all configuration objects, enums, thresholds, and source registries.
+Import this module to access:
+- Controlled vocabularies (taxonomy)
+- QC thresholds and plausibility ranges
+- DFI/regulator/company source registries
+- Runtime settings and API configuration
+
+Example:
+    from oefo.config import (
+        Technology,
+        Scale,
+        KD_NOMINAL_RANGE,
+        WACC_CONSISTENCY_TOLERANCE,
+        DFI_SOURCES,
+        REGULATORY_SOURCES,
+        COMPANY_UNIVERSE,
+        ANTHROPIC_API_KEY,
+        DATA_DIR,
+    )
+"""
+
+# Taxonomy exports
+from .taxonomy import (
+    Technology,
+    Scale,
+    ValueChainPosition,
+    ProjectStatus,
+    SourceType,
+    ExtractionMethod,
+    ExtractionTier,
+    QCStatus,
+    ConfidenceLevel,
+    DebtType,
+    KDRateBenchmark,
+    KEEstimationMethod,
+    LeverageBasis,
+    get_technology_value,
+    get_scale_value,
+    validate_technology,
+    validate_scale,
+)
+
+# Thresholds exports
+from .thresholds import (
+    KD_NOMINAL_RANGE,
+    KE_NOMINAL_RANGE,
+    WACC_NOMINAL_RANGE,
+    LEVERAGE_NOMINAL_RANGE,
+    DEBT_TENOR_RANGE,
+    SPREAD_BPS_RANGE,
+    WACC_CONSISTENCY_TOLERANCE,
+    AUTO_ACCEPT_THRESHOLD,
+    REVIEW_THRESHOLD,
+    OUTLIER_STD_DEVIATIONS,
+    is_kd_plausible,
+    is_ke_plausible,
+    is_wacc_plausible,
+    is_leverage_plausible,
+    is_tenor_plausible,
+    is_spread_plausible,
+    wacc_reconciliation_passes,
+    should_auto_accept,
+    should_review,
+    should_reject,
+)
+
+# Sources exports
+from .sources import (
+    DFI_SOURCES,
+    REGULATORY_SOURCES,
+    COMPANY_UNIVERSE,
+    get_dfi_by_name,
+    get_dfi_names,
+    get_regulator_by_code,
+    get_regulator_codes,
+    get_companies_by_sector,
+    get_all_sectors,
+    get_all_companies,
+    company_in_universe,
+    count_companies_by_sector,
+    total_company_count,
+)
+
+# Settings exports
+from .settings import (
+    OCR_DPI,
+    VISION_DPI,
+    VISION_MODEL,
+    QC_MODEL,
+    MAX_VISION_PAGES,
+    BASE_DIR,
+    DATA_DIR,
+    RAW_DIR,
+    EXTRACTED_DIR,
+    FINAL_DIR,
+    LOGS_DIR,
+    CACHE_DIR,
+    ANTHROPIC_API_KEY,
+    ANTHROPIC_ORG_ID,
+    USER_AGENT,
+    REQUEST_TIMEOUT,
+    RETRY_MAX_ATTEMPTS,
+    RETRY_BACKOFF_FACTOR,
+    LOG_LEVEL,
+    ENABLE_CACHING,
+    ENABLE_PARALLEL_PROCESSING,
+    MAX_WORKERS,
+    DEBUG,
+    DRY_RUN,
+    TESSERACT_LANGUAGES,
+    get_config,
+    validate_api_keys,
+    validate_directories,
+    print_config,
+)
+
+__all__ = [
+    # Taxonomy
+    "Technology",
+    "Scale",
+    "ValueChainPosition",
+    "ProjectStatus",
+    "SourceType",
+    "ExtractionMethod",
+    "ExtractionTier",
+    "QCStatus",
+    "ConfidenceLevel",
+    "DebtType",
+    "KDRateBenchmark",
+    "KEEstimationMethod",
+    "LeverageBasis",
+    "get_technology_value",
+    "get_scale_value",
+    "validate_technology",
+    "validate_scale",
+    # Thresholds
+    "KD_NOMINAL_RANGE",
+    "KE_NOMINAL_RANGE",
+    "WACC_NOMINAL_RANGE",
+    "LEVERAGE_NOMINAL_RANGE",
+    "DEBT_TENOR_RANGE",
+    "SPREAD_BPS_RANGE",
+    "WACC_CONSISTENCY_TOLERANCE",
+    "AUTO_ACCEPT_THRESHOLD",
+    "REVIEW_THRESHOLD",
+    "OUTLIER_STD_DEVIATIONS",
+    "is_kd_plausible",
+    "is_ke_plausible",
+    "is_wacc_plausible",
+    "is_leverage_plausible",
+    "is_tenor_plausible",
+    "is_spread_plausible",
+    "wacc_reconciliation_passes",
+    "should_auto_accept",
+    "should_review",
+    "should_reject",
+    # Sources
+    "DFI_SOURCES",
+    "REGULATORY_SOURCES",
+    "COMPANY_UNIVERSE",
+    "get_dfi_by_name",
+    "get_dfi_names",
+    "get_regulator_by_code",
+    "get_regulator_codes",
+    "get_companies_by_sector",
+    "get_all_sectors",
+    "get_all_companies",
+    "company_in_universe",
+    "count_companies_by_sector",
+    "total_company_count",
+    # Settings
+    "OCR_DPI",
+    "VISION_DPI",
+    "VISION_MODEL",
+    "QC_MODEL",
+    "MAX_VISION_PAGES",
+    "BASE_DIR",
+    "DATA_DIR",
+    "RAW_DIR",
+    "EXTRACTED_DIR",
+    "FINAL_DIR",
+    "LOGS_DIR",
+    "CACHE_DIR",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_ORG_ID",
+    "USER_AGENT",
+    "REQUEST_TIMEOUT",
+    "RETRY_MAX_ATTEMPTS",
+    "RETRY_BACKOFF_FACTOR",
+    "LOG_LEVEL",
+    "ENABLE_CACHING",
+    "ENABLE_PARALLEL_PROCESSING",
+    "MAX_WORKERS",
+    "DEBUG",
+    "DRY_RUN",
+    "TESSERACT_LANGUAGES",
+    "get_config",
+    "validate_api_keys",
+    "validate_directories",
+    "print_config",
+]
+
+__version__ = "0.1.0"
+__author__ = "OEFO Development Team"
+__description__ = "Configuration module for Open Energy Finance Observatory (OEFO) project"

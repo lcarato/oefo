@@ -1,0 +1,769 @@
+{
+  "generated_at": "2026-03-11T08:01:37.521215Z",
+  "pipeline_version": "0.1.0",
+  "scraping": {
+    "total_documents": 1243,
+    "by_source": {
+      "EBRD": 111,
+      "FERC": 111,
+      "Ofgem": 110,
+      "IFC": 109,
+      "GCF": 105,
+      "ANEEL": 104,
+      "SEC_EDGAR": 99,
+      "AER": 98
+    },
+    "by_type": {
+      "bond_prospectus": 220,
+      "regulatory_filing": 214,
+      "corporate_filing": 212,
+      "DFI_disclosure": 201
+    },
+    "total_size_mb": 487.3,
+    "earliest_download": "2026-02-15",
+    "latest_download": "2026-03-10"
+  },
+  "extraction": {
+    "total_extractions": 847,
+    "success": 847,
+    "fail": 0,
+    "success_rate": 1.0,
+    "by_tier": {
+      "tier_1_text": 293,
+      "tier_2_ocr": 289,
+      "tier_3_vision": 265
+    },
+    "total_extracted_items": 3388
+  },
+  "qc": {
+    "total_reviewed": 847,
+    "auto_accepted": 201,
+    "flagged_for_review": 519,
+    "rejected": 127,
+    "auto_accept_rate": 0.237,
+    "mean_score": 0.698,
+    "score_histogram": {
+      "0.4": 127,
+      "0.5": 156,
+      "0.6": 138,
+      "0.7": 148,
+      "0.8": 157,
+      "0.9": 120,
+      "1.0": 1
+    },
+    "top_flag_reasons": {
+      "WARNING": 491,
+      "ERROR": 155
+    }
+  },
+  "database": {
+    "total_observations": 847,
+    "unique_countries": 20,
+    "unique_technologies": 20,
+    "year_range": [
+      "2015",
+      "2025"
+    ],
+    "by_technology": {
+      "solar_csp": 55,
+      "wind_offshore_fixed": 52,
+      "transmission": 51,
+      "hydro_large": 49,
+      "storage_battery_grid": 49,
+      "gas_ccgt": 48,
+      "ccs_industrial": 46,
+      "solar_pv": 45,
+      "nuclear_large": 45,
+      "wind_onshore": 44,
+      "biofuels": 43,
+      "hydro_small": 43,
+      "distribution": 41,
+      "wind_offshore_floating": 41,
+      "ev_charging": 40,
+      "coal_power": 35,
+      "hydrogen_green": 32,
+      "biomass_power": 32,
+      "geothermal_power": 30,
+      "lng_liquefaction": 26
+    },
+    "by_country": {
+      "JPN": 53,
+      "AUS": 51,
+      "FRA": 47,
+      "GBR": 46,
+      "COL": 45,
+      "ESP": 45,
+      "DEU": 45,
+      "IDN": 44,
+      "CHL": 44,
+      "MEX": 43,
+      "IND": 42,
+      "USA": 42,
+      "NGA": 41,
+      "KEN": 41,
+      "ITA": 40,
+      "VNM": 39,
+      "ZAF": 37,
+      "PHL": 37,
+      "TUR": 34,
+      "BRA": 31
+    },
+    "by_year": {
+      "2015": 71,
+      "2016": 76,
+      "2017": 93,
+      "2018": 80,
+      "2019": 72,
+      "2020": 75,
+      "2021": 74,
+      "2022": 92,
+      "2023": 81,
+      "2024": 56,
+      "2025": 77
+    },
+    "by_source_type": {
+      "bond_prospectus": 220,
+      "regulatory_filing": 214,
+      "corporate_filing": 212,
+      "DFI_disclosure": 201
+    },
+    "by_scale": {
+      "mega_project": 235,
+      "regulated_asset": 211,
+      "commercial_industrial": 208,
+      "utility_scale": 193
+    },
+    "by_value_chain": {
+      "electricity_storage": 181,
+      "generation": 174,
+      "carbon_management": 173,
+      "electricity_transmission": 172,
+      "fuel_production": 147
+    }
+  },
+  "coverage": {
+    "technology_country_matrix": {
+      "biofuels": [
+        "AUS",
+        "BRA",
+        "CHL",
+        "COL",
+        "DEU",
+        "FRA",
+        "GBR",
+        "IDN",
+        "ITA",
+        "JPN",
+        "KEN",
+        "NGA",
+        "PHL",
+        "TUR",
+        "USA",
+        "VNM",
+        "ZAF"
+      ],
+      "biomass_power": [
+        "BRA",
+        "CHL",
+        "COL",
+        "ESP",
+        "GBR",
+        "IDN",
+        "JPN",
+        "KEN",
+        "MEX",
+        "NGA",
+        "PHL",
+        "TUR",
+        "USA",
+        "VNM",
+        "ZAF"
+      ],
+      "ccs_industrial": [
+        "AUS",
+        "BRA",
+        "CHL",
+        "COL",
+        "ESP",
+        "FRA",
+        "GBR",
+        "IDN",
+        "IND",
+        "ITA",
+        "JPN",
+        "MEX",
+        "NGA",
+        "PHL",
+        "VNM",
+        "ZAF"
+      ],
+      "coal_power": [
+        "AUS",
+        "BRA",
+        "CHL",
+        "COL",
+        "DEU",
+        "ESP",
+        "FRA",
+        "GBR",
+        "IND",
+        "ITA",
+        "JPN",
+        "KEN",
+        "MEX",
+        "NGA",
+        "PHL",
+        "TUR",
+        "VNM",
+        "ZAF"
+      ],
+      "distribution": [
+        "AUS",
+        "BRA",
+        "COL",
+        "DEU",
+        "ESP",
+        "FRA",
+        "GBR",
+        "IDN",
+        "IND",
+        "ITA",
+        "JPN",
+        "MEX",
+        "NGA",
+        "TUR",
+        "USA",
+        "VNM",
+        "ZAF"
+      ],
+      "ev_charging": [
+        "AUS",
+        "BRA",
+        "CHL",
+        "COL",
+        "DEU",
+        "ESP",
+        "FRA",
+        "GBR",
+        "IND",
+        "ITA",
+        "JPN",
+        "KEN",
+        "MEX",
+        "NGA",
+        "TUR",
+        "USA",
+        "VNM"
+      ],
+      "gas_ccgt": [
+        "AUS",
+        "BRA",
+        "CHL",
+        "COL",
+        "DEU",
+        "ESP",
+        "FRA",
+        "GBR",
+        "IDN",
+        "IND",
+        "ITA",
+        "JPN",
+        "KEN",
+        "MEX",
+        "NGA",
+        "PHL",
+        "TUR",
+        "USA",
+        "VNM",
+        "ZAF"
+      ],
+      "geothermal_power": [
+        "AUS",
+        "BRA",
+        "CHL",
+        "COL",
+        "DEU",
+        "FRA",
+        "IDN",
+        "IND",
+        "KEN",
+        "MEX",
+        "NGA",
+        "PHL",
+        "TUR",
+        "USA",
+        "VNM",
+        "ZAF"
+      ],
+      "hydro_large": [
+        "AUS",
+        "BRA",
+        "CHL",
+        "COL",
+        "DEU",
+        "ESP",
+        "FRA",
+        "GBR",
+        "IDN",
+        "IND",
+        "ITA",
+        "JPN",
+        "KEN",
+        "MEX",
+        "NGA",
+        "PHL",
+        "TUR",
+        "USA",
+        "VNM",
+        "ZAF"
+      ],
+      "hydro_small": [
+        "AUS",
+        "BRA",
+        "CHL",
+        "COL",
+        "DEU",
+        "ESP",
+        "FRA",
+        "IDN",
+        "IND",
+        "ITA",
+        "JPN",
+        "KEN",
+        "MEX",
+        "NGA",
+        "PHL",
+        "TUR",
+        "USA",
+        "VNM",
+        "ZAF"
+      ],
+      "hydrogen_green": [
+        "AUS",
+        "BRA",
+        "CHL",
+        "COL",
+        "DEU",
+        "ESP",
+        "FRA",
+        "GBR",
+        "IND",
+        "ITA",
+        "JPN",
+        "KEN",
+        "MEX",
+        "NGA",
+        "PHL",
+        "TUR",
+        "VNM",
+        "ZAF"
+      ],
+      "lng_liquefaction": [
+        "AUS",
+        "CHL",
+        "COL",
+        "DEU",
+        "ESP",
+        "FRA",
+        "IDN",
+        "IND",
+        "ITA",
+        "JPN",
+        "KEN",
+        "MEX",
+        "NGA",
+        "PHL",
+        "TUR",
+        "VNM"
+      ],
+      "nuclear_large": [
+        "BRA",
+        "COL",
+        "DEU",
+        "ESP",
+        "FRA",
+        "GBR",
+        "IDN",
+        "IND",
+        "ITA",
+        "JPN",
+        "KEN",
+        "MEX",
+        "NGA",
+        "PHL",
+        "TUR",
+        "USA",
+        "VNM"
+      ],
+      "solar_csp": [
+        "AUS",
+        "BRA",
+        "CHL",
+        "COL",
+        "DEU",
+        "ESP",
+        "FRA",
+        "GBR",
+        "IDN",
+        "IND",
+        "ITA",
+        "JPN",
+        "KEN",
+        "MEX",
+        "NGA",
+        "PHL",
+        "TUR",
+        "USA",
+        "ZAF"
+      ],
+      "solar_pv": [
+        "AUS",
+        "BRA",
+        "CHL",
+        "COL",
+        "DEU",
+        "ESP",
+        "FRA",
+        "GBR",
+        "IDN",
+        "IND",
+        "ITA",
+        "JPN",
+        "KEN",
+        "TUR",
+        "USA",
+        "VNM",
+        "ZAF"
+      ],
+      "storage_battery_grid": [
+        "AUS",
+        "BRA",
+        "CHL",
+        "DEU",
+        "ESP",
+        "FRA",
+        "GBR",
+        "IDN",
+        "IND",
+        "ITA",
+        "JPN",
+        "KEN",
+        "MEX",
+        "NGA",
+        "TUR",
+        "USA",
+        "VNM",
+        "ZAF"
+      ],
+      "transmission": [
+        "AUS",
+        "CHL",
+        "COL",
+        "DEU",
+        "ESP",
+        "FRA",
+        "GBR",
+        "IDN",
+        "ITA",
+        "JPN",
+        "KEN",
+        "NGA",
+        "PHL",
+        "USA",
+        "VNM",
+        "ZAF"
+      ],
+      "wind_offshore_fixed": [
+        "AUS",
+        "BRA",
+        "CHL",
+        "COL",
+        "DEU",
+        "ESP",
+        "FRA",
+        "GBR",
+        "IDN",
+        "ITA",
+        "JPN",
+        "KEN",
+        "MEX",
+        "NGA",
+        "PHL",
+        "TUR",
+        "USA",
+        "VNM",
+        "ZAF"
+      ],
+      "wind_offshore_floating": [
+        "AUS",
+        "BRA",
+        "CHL",
+        "COL",
+        "DEU",
+        "ESP",
+        "FRA",
+        "GBR",
+        "IDN",
+        "IND",
+        "ITA",
+        "JPN",
+        "KEN",
+        "MEX",
+        "NGA",
+        "PHL",
+        "TUR",
+        "USA",
+        "VNM"
+      ],
+      "wind_onshore": [
+        "AUS",
+        "CHL",
+        "COL",
+        "DEU",
+        "ESP",
+        "FRA",
+        "GBR",
+        "IDN",
+        "IND",
+        "ITA",
+        "JPN",
+        "KEN",
+        "MEX",
+        "NGA",
+        "TUR",
+        "USA",
+        "VNM",
+        "ZAF"
+      ]
+    },
+    "technologies_by_country_count": {
+      "hydro_large": 20,
+      "gas_ccgt": 20,
+      "wind_offshore_fixed": 19,
+      "solar_csp": 19,
+      "hydro_small": 19,
+      "wind_offshore_floating": 19,
+      "hydrogen_green": 18,
+      "wind_onshore": 18,
+      "storage_battery_grid": 18,
+      "coal_power": 18,
+      "biofuels": 17,
+      "distribution": 17,
+      "solar_pv": 17,
+      "nuclear_large": 17,
+      "ev_charging": 17,
+      "transmission": 16,
+      "ccs_industrial": 16,
+      "geothermal_power": 16,
+      "lng_liquefaction": 16,
+      "biomass_power": 15
+    },
+    "top_countries": {
+      "JPN": 53,
+      "AUS": 51,
+      "FRA": 47,
+      "GBR": 46,
+      "COL": 45,
+      "ESP": 45,
+      "DEU": 45,
+      "IDN": 44,
+      "CHL": 44,
+      "MEX": 43,
+      "IND": 42,
+      "USA": 42,
+      "NGA": 41,
+      "KEN": 41,
+      "ITA": 40,
+      "VNM": 39,
+      "ZAF": 37,
+      "PHL": 37,
+      "TUR": 34,
+      "BRA": 31
+    },
+    "total_tech_country_pairs": 352
+  },
+  "financials": {
+    "kd_nominal": {
+      "count": 847,
+      "mean": 6.93,
+      "median": 6.02,
+      "min": 2.51,
+      "max": 13.94,
+      "std": 3.28
+    },
+    "ke_nominal": {
+      "count": 847,
+      "mean": 11.95,
+      "median": 11.3,
+      "min": 4.96,
+      "max": 21.58,
+      "std": 3.63
+    },
+    "wacc_nominal": {
+      "count": 847,
+      "mean": 7.53,
+      "median": 6.79,
+      "min": 2.86,
+      "max": 15.35,
+      "std": 2.91
+    },
+    "leverage_debt_pct": {
+      "count": 847,
+      "mean": 65.56,
+      "median": 65.0,
+      "min": 40.0,
+      "max": 85.0,
+      "std": 11.34
+    },
+    "kd_spread_bps": {
+      "count": 847,
+      "mean": 354.05,
+      "median": 358.0,
+      "min": 101.0,
+      "max": 599.0,
+      "std": 142.6
+    },
+    "kd_by_technology": {
+      "solar_csp": {
+        "count": 55,
+        "mean": 6.3
+      },
+      "wind_offshore_fixed": {
+        "count": 52,
+        "mean": 6.68
+      },
+      "transmission": {
+        "count": 51,
+        "mean": 6.51
+      },
+      "hydro_large": {
+        "count": 49,
+        "mean": 7.29
+      },
+      "storage_battery_grid": {
+        "count": 49,
+        "mean": 6.91
+      },
+      "gas_ccgt": {
+        "count": 48,
+        "mean": 6.6
+      },
+      "ccs_industrial": {
+        "count": 46,
+        "mean": 7.18
+      },
+      "solar_pv": {
+        "count": 45,
+        "mean": 7.31
+      },
+      "nuclear_large": {
+        "count": 45,
+        "mean": 7.62
+      },
+      "wind_onshore": {
+        "count": 44,
+        "mean": 6.78
+      },
+      "biofuels": {
+        "count": 43,
+        "mean": 6.91
+      },
+      "hydro_small": {
+        "count": 43,
+        "mean": 6.91
+      },
+      "distribution": {
+        "count": 41,
+        "mean": 7.37
+      },
+      "wind_offshore_floating": {
+        "count": 41,
+        "mean": 5.94
+      },
+      "ev_charging": {
+        "count": 40,
+        "mean": 6.42
+      }
+    },
+    "wacc_by_country": {
+      "JPN": {
+        "count": 53,
+        "mean": 5.66
+      },
+      "AUS": {
+        "count": 51,
+        "mean": 5.38
+      },
+      "FRA": {
+        "count": 47,
+        "mean": 6.0
+      },
+      "GBR": {
+        "count": 46,
+        "mean": 5.61
+      },
+      "COL": {
+        "count": 45,
+        "mean": 10.58
+      },
+      "ESP": {
+        "count": 45,
+        "mean": 5.67
+      },
+      "DEU": {
+        "count": 45,
+        "mean": 5.73
+      },
+      "IDN": {
+        "count": 44,
+        "mean": 10.22
+      },
+      "CHL": {
+        "count": 44,
+        "mean": 5.49
+      },
+      "MEX": {
+        "count": 43,
+        "mean": 5.52
+      },
+      "IND": {
+        "count": 42,
+        "mean": 10.34
+      },
+      "USA": {
+        "count": 42,
+        "mean": 5.54
+      },
+      "NGA": {
+        "count": 41,
+        "mean": 10.1
+      },
+      "KEN": {
+        "count": 41,
+        "mean": 9.59
+      },
+      "ITA": {
+        "count": 40,
+        "mean": 5.4
+      }
+    },
+    "ke_by_source_type": {
+      "bond_prospectus": {
+        "count": 220,
+        "mean": 12.02
+      },
+      "regulatory_filing": {
+        "count": 214,
+        "mean": 11.77
+      },
+      "corporate_filing": {
+        "count": 212,
+        "mean": 12.04
+      },
+      "DFI_disclosure": {
+        "count": 201,
+        "mean": 11.97
+      }
+    }
+  }
+}

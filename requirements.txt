@@ -1,0 +1,32 @@
+# OEFO - Open Energy Finance Observatory
+# Core dependencies
+
+# Core data handling
+pandas>=2.0
+pydantic>=2.0
+pyarrow>=12.0
+
+# PDF extraction and processing
+pdfplumber>=0.9
+pymupdf>=1.22
+pdf2image>=1.16
+pytesseract>=0.3
+Pillow>=10.0
+opencv-python-headless>=4.8
+
+# LLM providers (install at least one)
+anthropic>=0.25
+# openai>=1.0      # optional fallback
+# google-generativeai>=0.5  # optional fallback
+
+# Web scraping
+requests>=2.31
+beautifulsoup4>=4.12
+lxml>=4.9
+
+# Output generation
+openpyxl>=3.1
+matplotlib>=3.7
+
+# Utilities
+python-dateutil>=2.8
