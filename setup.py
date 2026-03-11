@@ -8,7 +8,8 @@ from setuptools import setup, find_packages
 from pathlib import Path
 
 # Read version from __init__.py
-init_file = Path(__file__).parent / 'oefo' / '__init__.py'
+# The package root IS this directory (not a nested oefo/ subdirectory)
+init_file = Path(__file__).parent / '__init__.py'
 for line in init_file.read_text().split('\n'):
     if line.startswith('__version__'):
         version = line.split('=')[1].strip().strip('"\'')
@@ -29,9 +30,18 @@ setup(
     long_description=long_description,
     long_description_content_type='text/markdown',
     author='ET Finance',
-    url='https://github.com/et-finance/oefo',
-    packages=find_packages(),
-    python_requires='>=3.8',
+    url='https://github.com/lcarato/oefo',
+    packages=find_packages(where='.'),
+    package_dir={'': '.'},
+    python_requires='>=3.10',
+    package_data={
+        'oefo': [
+            'dashboard/*.html',
+            'dashboard/*.json',
+            'config/*.json',
+            'config/*.md',
+        ],
+    },
     install_requires=[
         'pandas>=2.0',
         'pydantic>=2.0',
@@ -74,8 +84,6 @@ setup(
         'Topic :: Scientific/Engineering :: Information Analysis',
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.8',
-        'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
         'Programming Language :: Python :: 3.11',
         'Programming Language :: Python :: 3.12',

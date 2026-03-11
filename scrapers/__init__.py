@@ -61,7 +61,7 @@ _SCRAPERS = {
     "SEC": SECEdgarScraper,
     "ANEEL": ANEELScraper,
     "AER": AERScraper,
-    "Ofgem": OfgemScraper,
+    "OFGEM": OfgemScraper,
     "FERC": FERCScraper,
 }
 
@@ -84,13 +84,15 @@ def get_scraper(name: str, **kwargs) -> BaseScraper:
         ifc = get_scraper("IFC")
         documents = ifc.scrape()
     """
-    if name not in _SCRAPERS:
+    # Normalize to uppercase for case-insensitive lookup
+    normalized = name.upper()
+    if normalized not in _SCRAPERS:
         raise ValueError(
             f"Unknown scraper: {name}. "
             f"Available: {', '.join(_SCRAPERS.keys())}"
         )
 
-    scraper_class = _SCRAPERS[name]
+    scraper_class = _SCRAPERS[normalized]
     return scraper_class(**kwargs)
 
 

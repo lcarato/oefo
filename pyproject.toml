@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "oefo"
+dynamic = ["version"]
+description = "Open Energy Finance Observatory - Energy finance data toolkit"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "ET Finance"},
+]
+keywords = ["energy", "finance", "wacc", "renewable", "solar", "wind", "hydro"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Office/Business :: News/Diary",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.urls]
+Homepage = "https://github.com/lcarato/oefo"
+Repository = "https://github.com/lcarato/oefo"
+
+[project.scripts]
+oefo = "oefo.cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "oefo.__version__"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

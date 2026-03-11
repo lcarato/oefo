@@ -18,6 +18,7 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
+from ..models import ExtractionTier
 from .text import TextExtractor
 from .ocr import OCRExtractor
 from .vision import VisionExtractor
@@ -176,7 +177,7 @@ class ExtractionPipeline:
         self.logger.info(f"Selected tier: {tier}")
 
         # Step 2: Run initial extraction
-        if tier == "tier_1_text":
+        if tier == ExtractionTier.TIER_1.value:
             results = self.run_tier1(str(pdf_path), source_type)
             all_results.extend(results)
 
@@ -195,7 +196,7 @@ class ExtractionPipeline:
                 )
                 all_results = self.cross_reference(results, vision_results)
 
-        elif tier == "tier_2_ocr":
+        elif tier == ExtractionTier.TIER_2.value:
             results = self.run_tier2(str(pdf_path), source_type)
             all_results.extend(results)
 
@@ -255,7 +256,7 @@ class ExtractionPipeline:
 
             if not result.get("success", False):
                 self.logger.info("Text extraction failed; using Tier 2 OCR")
-                return "tier_2_ocr"
+                return ExtractionTier.TIER_2.value
 
             # Check text quality across pages
             pages = result.get("pages", [])
@@ -273,16 +274,16 @@ class ExtractionPipeline:
                 self.logger.info(
                     f"Text quality sufficient ({quality_ratio:.0%} pages). Using Tier 1."
                 )
-                return "tier_1_text"
+                return ExtractionTier.TIER_1.value
             else:
                 self.logger.info(
                     f"Text quality insufficient ({quality_ratio:.0%} pages). Using Tier 2 OCR."
                 )
-                return "tier_2_ocr"
+                return ExtractionTier.TIER_2.value
 
         except Exception as e:
             self.logger.warning(f"Tier decision failed: {str(e)}. Defaulting to Tier 2.")
-            return "tier_2_ocr"
+            return ExtractionTier.TIER_2.value
 
     def run_tier1(self, pdf_path: str, source_type: str) -> List[ExtractionResult]:
         """
@@ -326,7 +327,7 @@ class ExtractionPipeline:
                 if self.text_extractor.is_text_quality_sufficient(text):
                     result = ExtractionResult(
                         page_num=page_num,
-                        tier="TIER_1_TEXT",
+                        tier=ExtractionTier.TIER_1.value,
                         extracted_data={
                             "text_length": len(text),
                             "tables_detected": tables_found,
@@ -384,7 +385,7 @@ class ExtractionPipeline:
                 if self.text_extractor.is_text_quality_sufficient(text):
                     result = ExtractionResult(
                         page_num=page_num,
-                        tier="TIER_2_OCR",
+                        tier=ExtractionTier.TIER_2.value,
                         extracted_data={
                             "ocr_confidence": confidence,
                             "text_length": len(text),
@@ -452,7 +453,7 @@ class ExtractionPipeline:
 
                 result = ExtractionResult(
                     page_num=page_num,
-                    tier="TIER_3_VISION",
+                    tier=ExtractionTier.TIER_3.value,
                     extracted_data={
                         "items_extracted": len(extracted),
                         "structured_data": extracted,

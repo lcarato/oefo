@@ -331,14 +331,14 @@ class Observation(BaseModel):
     kd_nominal: Optional[float] = Field(
         None,
         ge=0,
-        le=1,
-        description="Nominal cost of debt (nominal interest rate)"
+        le=100,
+        description="Nominal cost of debt in percentage points (e.g. 5.5 for 5.5%)"
     )
     kd_real: Optional[float] = Field(
         None,
-        ge=-0.5,
-        le=1,
-        description="Real cost of debt (inflation-adjusted)"
+        ge=-50,
+        le=100,
+        description="Real cost of debt in percentage points, inflation-adjusted"
     )
     kd_benchmark: Optional[str] = Field(
         None,
@@ -376,14 +376,14 @@ class Observation(BaseModel):
     ke_nominal: Optional[float] = Field(
         None,
         ge=0,
-        le=2,
-        description="Nominal cost of equity"
+        le=100,
+        description="Nominal cost of equity in percentage points (e.g. 12.0 for 12%)"
     )
     ke_real: Optional[float] = Field(
         None,
-        ge=-0.5,
-        le=2,
-        description="Real cost of equity (inflation-adjusted)"
+        ge=-50,
+        le=100,
+        description="Real cost of equity in percentage points, inflation-adjusted"
     )
     ke_estimation_method: Optional[str] = Field(
         None,
@@ -411,15 +411,15 @@ class Observation(BaseModel):
     # WACC (Weighted Average Cost of Capital)
     wacc_nominal: Optional[float] = Field(
         None,
-        ge=-0.5,
-        le=1,
-        description="Weighted average cost of capital (nominal)"
+        ge=-50,
+        le=100,
+        description="Weighted average cost of capital (nominal) in percentage points"
     )
     wacc_real: Optional[float] = Field(
         None,
-        ge=-0.5,
-        le=1,
-        description="Weighted average cost of capital (real, inflation-adjusted)"
+        ge=-50,
+        le=100,
+        description="Weighted average cost of capital (real) in percentage points"
     )
     tax_rate_applied: Optional[float] = Field(
         None,

@@ -7,7 +7,7 @@ OEFO automates the extraction of observed financing terms — cost of debt (Kd),
 ## Key Features
 
 - **Multi-source scraping** — IFC, EBRD, GCF, SEC EDGAR, plus regulatory agencies (ANEEL, AER, Ofgem, FERC)
-- **4-tier extraction pipeline** — pdfplumber text → Tesseract OCR → LLM Vision → human-in-the-loop
+- **3-tier extraction pipeline** — pdfplumber text → Tesseract OCR → LLM Vision (with cross-referencing)
 - **3-layer QC agent** — rule-based validation → statistical benchmarks → LLM cross-validation
 - **Full traceability** — every observation carries a provenance chain from source document to final value
 - **Multiple output formats** — Excel workbooks, CSV, Parquet, JSON
@@ -17,7 +17,7 @@ OEFO automates the extraction of observed financing terms — cost of debt (Kd),
 
 ```bash
 # Clone and install
-git clone https://github.com/et-finance/oefo.git
+git clone https://github.com/lcarato/oefo.git
 cd oefo
 pip install -e .
 
@@ -26,9 +26,10 @@ export ANTHROPIC_API_KEY=your-key-here
 
 # Run the full pipeline for a source
 oefo scrape ifc
-oefo extract --source ifc
-oefo qc --source ifc
-oefo export --format excel
+oefo extract ./data/raw/ifc/report.pdf --source-type dfi
+oefo extract-batch ./data/raw/ifc --source-type dfi
+oefo qc --full
+oefo export --format excel --output results.xlsx
 ```
 
 ## Architecture
@@ -52,14 +53,14 @@ oefo/
 
 | Command | Description |
 |---------|-------------|
-| `oefo scrape <source>` | Scrape documents from a source |
-| `oefo extract --source <source>` | Extract financing terms from scraped documents |
-| `oefo extract-batch --sources ifc,ebrd` | Batch extraction across multiple sources |
-| `oefo qc --source <source>` | Run QC validation on extracted observations |
-| `oefo export --format excel` | Export observations to Excel/CSV/Parquet/JSON |
-| `oefo dashboard` | Launch the live monitoring dashboard |
-| `oefo status` | Show pipeline status and statistics |
-| `oefo config` | Display current configuration |
+| `oefo scrape <source>` | Scrape documents from a source (ifc, ebrd, ofgem, etc.) |
+| `oefo extract <pdf> --source-type <type>` | Extract financing terms from a single PDF |
+| `oefo extract-batch <dir> --source-type <type>` | Batch extraction from a directory of PDFs |
+| `oefo qc [--rules-only\|--full]` | Run QC validation on extracted observations |
+| `oefo export --format <fmt> --output <path>` | Export observations to Excel/CSV/Parquet/JSON |
+| `oefo dashboard [--port 8765]` | Launch the live monitoring dashboard |
+| `oefo status [--detailed]` | Show pipeline status and statistics |
+| `oefo config [--validate]` | Display or validate current configuration |
 
 ## Configuration
 
@@ -83,7 +84,6 @@ Where Ke = cost of equity, Kd = cost of debt, E/V = equity weight, D/V = debt we
 
 ## Documentation
 
-- [Deployment Guide](OEFO_Deployment_Guide.docx)
 - [Installation Procedure](OEFO_Installation_Procedure.docx)
 - [User Guide](OEFO_User_Guide.docx)
 - [Agent Operations](OEFO_Agent_Autonomous_Operations.md)

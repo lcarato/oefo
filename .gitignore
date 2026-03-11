@@ -33,7 +33,10 @@ logs/
 # Data (scraped/extracted - regenerable)
 data/raw/
 data/processed/
+data/extracted/
+data/final/
 data/cache/
+.cache/
 *.parquet
 *.db
 *.sqlite3

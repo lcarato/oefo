@@ -203,6 +203,4 @@ __all__ = [
     "print_config",
 ]
 
-__version__ = "0.1.0"
-__author__ = "OEFO Development Team"
-__description__ = "Configuration module for Open Energy Finance Observatory (OEFO) project"
+# Version and author inherited from oefo package — do not duplicate here

@@ -142,9 +142,14 @@ CACHE_DIR: Path = Path(os.environ.get("OEFO_CACHE_DIR", BASE_DIR / ".cache"))
 Directory for caching (OCR outputs, model responses, etc.).
 """
 
-# Create directories if they don't exist
-for directory in [DATA_DIR, RAW_DIR, EXTRACTED_DIR, FINAL_DIR, LOGS_DIR, CACHE_DIR]:
-    directory.mkdir(parents=True, exist_ok=True)
+def ensure_directories() -> None:
+    """Create required directories if they don't exist.
+
+    Call this explicitly before pipeline operations rather than at import time,
+    to avoid side effects when simply importing the config module.
+    """
+    for directory in [DATA_DIR, RAW_DIR, EXTRACTED_DIR, FINAL_DIR, LOGS_DIR, CACHE_DIR]:
+        directory.mkdir(parents=True, exist_ok=True)
 
 # =============================================================================
 # API Keys and Authentication

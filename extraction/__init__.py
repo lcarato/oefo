@@ -55,4 +55,4 @@ __all__ = [
     "get_prompt",
 ]
 
-__version__ = "1.0.0"
+# Version inherited from oefo package — do not duplicate here

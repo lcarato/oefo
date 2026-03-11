@@ -11,7 +11,7 @@ The dashboard connects via EventSource and re-renders charts in real time
 without any page refresh.
 
 Usage:
-    # Default: http://localhost:8787
+    # Default: http://localhost:8765
     python -m oefo.dashboard.server
 
     # Custom port and interval
@@ -146,7 +146,7 @@ class DashboardServer:
     """
 
     def __init__(self, collector: SnapshotCollector, host: str = "0.0.0.0",
-                 port: int = 8787):
+                 port: int = 8765):
         self.collector = collector
         self.host = host
         self.port = port
@@ -273,13 +273,38 @@ class DashboardServer:
 
 
 # ---------------------------------------------------------------------------
+# Public API for CLI integration
+# ---------------------------------------------------------------------------
+
+def start_server(host: str = "0.0.0.0", port: int = 8765,
+                 interval: float = 5.0, demo: bool = False):
+    """Start the dashboard server programmatically (called by cli.py).
+
+    Args:
+        host: Bind address.
+        port: HTTP port.
+        interval: Snapshot refresh interval in seconds.
+        demo: Use sample data instead of real pipeline data.
+    """
+    collector = SnapshotCollector(demo=demo)
+    server = DashboardServer(collector, host=host, port=port)
+
+    async def run():
+        collector_task = asyncio.create_task(collector.run(interval=interval))
+        server_task = asyncio.create_task(server.start())
+        await asyncio.gather(collector_task, server_task)
+
+    asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(description="OEFO Dashboard Streaming Server")
-    parser.add_argument("--port", type=int, default=8787,
-                        help="HTTP port (default: 8787)")
+    parser.add_argument("--port", type=int, default=8765,
+                        help="HTTP port (default: 8765)")
     parser.add_argument("--host", type=str, default="0.0.0.0",
                         help="Bind address (default: 0.0.0.0)")
     parser.add_argument("--interval", type=float, default=5.0,

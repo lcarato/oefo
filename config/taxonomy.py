@@ -115,14 +115,17 @@ class Technology(Enum):
 
 
 class Scale(Enum):
-    """Project or asset scale classification."""
-    UTILITY_SCALE = "utility_scale"
-    COMMERCIAL_INDUSTRIAL = "commercial_industrial"
-    DISTRIBUTED_RESIDENTIAL = "distributed_residential"
-    PORTFOLIO = "portfolio"
-    MEGA_PROJECT = "mega_project"
-    REGULATED_ASSET = "regulated_asset"
-    PILOT_DEMONSTRATION = "pilot_demonstration"
+    """Project or asset scale classification.
+
+    Values aligned with models.py Scale enum for consistency.
+    """
+    UTILITY = "utility"
+    COMMERCIAL = "commercial"
+    INDUSTRIAL = "industrial"
+    RESIDENTIAL = "residential"
+    COMMUNITY = "community"
+    MICRO = "micro"
+    DISTRIBUTED = "distributed"
 
 
 class ValueChainPosition(Enum):
@@ -165,19 +168,24 @@ class ExtractionMethod(Enum):
 
 
 class ExtractionTier(Enum):
-    """Processing tier used for extraction (increasing complexity/cost)."""
-    TIER_1_TEXT = "tier_1_text"
-    TIER_2_OCR = "tier_2_ocr"
-    TIER_3_VISION = "tier_3_vision"
-    TIER_4_MANUAL = "tier_4_manual"
+    """Processing tier used for extraction (increasing complexity/cost).
+
+    Values aligned with models.py ExtractionTier enum.
+    """
+    TIER_1 = "tier_1"  # High quality, direct text extraction
+    TIER_2 = "tier_2"  # Moderate quality, OCR-based
+    TIER_3 = "tier_3"  # Lower quality, vision-based inference
 
 
 class QCStatus(Enum):
-    """Quality control review status of extracted data."""
-    AUTO_ACCEPTED = "auto_accepted"
-    HUMAN_REVIEWED = "human_reviewed"
-    HUMAN_CORRECTED = "human_corrected"
-    REJECTED = "rejected"
+    """Quality control review status of extracted data.
+
+    Values aligned with models.py QCStatus enum.
+    """
+    PASSED = "passed"
+    FAILED = "failed"
+    FLAGGED = "flagged"
+    PENDING_REVIEW = "pending_review"
 
 
 class ConfidenceLevel(Enum):
@@ -188,12 +196,17 @@ class ConfidenceLevel(Enum):
 
 
 class DebtType(Enum):
-    """Classification of debt instrument by seniority and structure."""
-    SENIOR = "senior"
-    SUBORDINATED = "subordinated"
-    MEZZANINE = "mezzanine"
+    """Classification of debt instrument by type.
+
+    Values aligned with models.py DebtType enum.
+    """
+    BANK_LOAN = "bank_loan"
     BOND = "bond"
-    CONCESSIONAL = "concessional"
+    CONVERTIBLE = "convertible"
+    CREDIT_LINE = "credit_line"
+    EQUIPMENT_FINANCING = "equipment_financing"
+    MEZZANINE = "mezzanine"
+    SUPPLIER_CREDIT = "supplier_credit"
 
 
 class KDRateBenchmark(Enum):
