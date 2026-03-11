@@ -101,12 +101,12 @@ Default: English. Add language codes as needed for multi-language support.
 BASE_DIR: Path = Path(
     os.environ.get(
         "OEFO_BASE_DIR",
-        Path(__file__).resolve().parent.parent,
+        Path.cwd(),
     )
 )
 """
 Base directory for the OEFO project.
-Defaults to parent of config module.
+Defaults to the current working directory.
 Can be overridden via OEFO_BASE_DIR environment variable.
 """
 
@@ -282,6 +282,7 @@ def get_config() -> Dict[str, any]:
         "LOGS_DIR": str(LOGS_DIR),
         "CACHE_DIR": str(CACHE_DIR),
         "ANTHROPIC_API_KEY": "***" if ANTHROPIC_API_KEY else None,
+        "OPENAI_API_KEY": "***" if OPENAI_API_KEY else None,
         "USER_AGENT": USER_AGENT,
         "REQUEST_TIMEOUT": REQUEST_TIMEOUT,
         "RETRY_MAX_ATTEMPTS": RETRY_MAX_ATTEMPTS,

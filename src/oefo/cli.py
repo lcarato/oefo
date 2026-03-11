@@ -243,8 +243,13 @@ Examples:
     dashboard_parser.add_argument(
         '--host',
         type=str,
-        default='0.0.0.0',
-        help='Host to bind (default: 0.0.0.0)'
+        default='127.0.0.1',
+        help='Host to bind (default: 127.0.0.1)'
+    )
+    dashboard_parser.add_argument(
+        '--public',
+        action='store_true',
+        help='Enable public access with wildcard CORS (overrides host to 0.0.0.0)'
     )
     dashboard_parser.set_defaults(func=handle_dashboard)
 
@@ -604,12 +609,23 @@ def handle_dashboard(args: argparse.Namespace) -> int:
     try:
         from .dashboard.server import start_server
 
+        # If --public flag is set, use 0.0.0.0 host and enable CORS wildcard
+        host = args.host
+        cors_origin = None
+        if args.public:
+            host = "0.0.0.0"
+            cors_origin = "*"
+
         print(f"OEFO Live Dashboard")
-        print(f"  Server: http://{args.host}:{args.port}")
+        print(f"  Server: http://{host}:{args.port}")
+        if args.public:
+            print(f"  Mode: PUBLIC (CORS enabled)")
+        else:
+            print(f"  Mode: LOCALHOST ONLY")
         print(f"  Press Ctrl+C to stop")
         print()
 
-        start_server(host=args.host, port=args.port)
+        start_server(host=host, port=args.port, cors_origin=cors_origin)
         return 0
 
     except KeyboardInterrupt:

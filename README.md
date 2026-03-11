@@ -13,6 +13,22 @@ OEFO automates the extraction of observed financing terms — cost of debt (Kd),
 - **Multiple output formats** — Excel workbooks, CSV, Parquet, JSON
 - **Live dashboard** — real-time pipeline monitoring via Server-Sent Events
 
+## System Dependencies
+
+Before installing OEFO, ensure you have the required system dependencies:
+
+**macOS (via Homebrew):**
+```bash
+brew install poppler tesseract
+```
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt-get install -y poppler-utils tesseract-ocr
+```
+
+For complete installation instructions including Windows support, Python virtual environment setup, and environment configuration, see [Installation Guide](docs/INSTALL.md).
+
 ## Quick Start
 
 ```bash
@@ -34,20 +50,23 @@ oefo export --format excel --output results.xlsx
 
 ## Architecture
 
+OEFO is organized under `src/oefo/` with the following structure:
+
 ```
-oefo/
-├── scrapers/          # Source-specific web scrapers
-│   └── regulatory/    # Regulatory agency scrapers
-├── extraction/        # PDF text/table extraction pipeline
-├── qc/                # Quality control agent (3 layers)
+src/oefo/
+├── scrapers/          # Source-specific web scrapers (DFI + regulatory)
+├── extraction/        # 3-tier PDF extraction pipeline (text → OCR → vision)
+├── qc/                # 3-layer quality control system
 ├── outputs/           # Excel, CSV, Parquet, JSON exporters
 ├── dashboard/         # Real-time SSE monitoring dashboard
-├── data/              # Storage layer (ObservationStore)
-├── config/            # Settings and environment config
+├── data/              # Persistence layer (in-memory + SQLite)
+├── config/            # Configuration and settings
 ├── models.py          # Pydantic v2 data models (Observation, ProvenanceChain)
 ├── llm_client.py      # Model-agnostic LLM client (Anthropic → OpenAI → Ollama)
 └── cli.py             # Command-line interface
 ```
+
+For detailed architecture information including module descriptions, data flow diagrams, and extensibility patterns, see [Architecture Overview](docs/ARCHITECTURE.md).
 
 ## CLI Reference
 
@@ -84,9 +103,10 @@ Where Ke = cost of equity, Kd = cost of debt, E/V = equity weight, D/V = debt we
 
 ## Documentation
 
-- [Installation Procedure](OEFO_Installation_Procedure.docx)
-- [User Guide](OEFO_User_Guide.docx)
-- [Agent Operations](OEFO_Agent_Autonomous_Operations.md)
+- [Installation Guide](docs/INSTALL.md) — Step-by-step setup, system dependencies, troubleshooting
+- [Architecture Overview](docs/ARCHITECTURE.md) — System design, module descriptions, data flow, performance characteristics
+- [OpenClaw Integration](docs/OPENCLAW.md) — Scheduled operations, wrapper commands, security model, approval workflows
+- [Agent Operations](OEFO_Agent_Autonomous_Operations.md) — Autonomous pipeline decision logic and error handling protocols
 
 ## Requirements
 

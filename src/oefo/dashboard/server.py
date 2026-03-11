@@ -145,11 +145,12 @@ class DashboardServer:
       GET /health      → {"status": "ok"}
     """
 
-    def __init__(self, collector: SnapshotCollector, host: str = "0.0.0.0",
-                 port: int = 8765):
+    def __init__(self, collector: SnapshotCollector, host: str = "127.0.0.1",
+                 port: int = 8765, cors_origin: Optional[str] = None):
         self.collector = collector
         self.host = host
         self.port = port
+        self.cors_origin = cors_origin
         self._dashboard_html: Optional[str] = None
 
     def _load_dashboard_html(self) -> str:
@@ -202,7 +203,10 @@ class DashboardServer:
             f"HTTP/1.1 {status} {status_text}\r\n"
             f"Content-Type: {content_type}; charset=utf-8\r\n"
             f"Content-Length: {len(body_bytes)}\r\n"
-            f"Access-Control-Allow-Origin: *\r\n"
+        )
+        if self.cors_origin:
+            header += f"Access-Control-Allow-Origin: {self.cors_origin}\r\n"
+        header += (
             f"Cache-Control: no-cache\r\n"
             f"Connection: close\r\n"
             f"\r\n"
@@ -226,7 +230,10 @@ class DashboardServer:
             "Content-Type: text/event-stream\r\n"
             "Cache-Control: no-cache\r\n"
             "Connection: keep-alive\r\n"
-            "Access-Control-Allow-Origin: *\r\n"
+        )
+        if self.cors_origin:
+            header += f"Access-Control-Allow-Origin: {self.cors_origin}\r\n"
+        header += (
             "X-Accel-Buffering: no\r\n"
             "\r\n"
         )
@@ -276,8 +283,8 @@ class DashboardServer:
 # Public API for CLI integration
 # ---------------------------------------------------------------------------
 
-def start_server(host: str = "0.0.0.0", port: int = 8765,
-                 interval: float = 5.0, demo: bool = False):
+def start_server(host: str = "127.0.0.1", port: int = 8765,
+                 interval: float = 5.0, demo: bool = False, cors_origin: Optional[str] = None):
     """Start the dashboard server programmatically (called by cli.py).
 
     Args:
@@ -285,9 +292,10 @@ def start_server(host: str = "0.0.0.0", port: int = 8765,
         port: HTTP port.
         interval: Snapshot refresh interval in seconds.
         demo: Use sample data instead of real pipeline data.
+        cors_origin: CORS origin header. If None, no CORS header is set.
     """
     collector = SnapshotCollector(demo=demo)
-    server = DashboardServer(collector, host=host, port=port)
+    server = DashboardServer(collector, host=host, port=port, cors_origin=cors_origin)
 
     async def run():
         collector_task = asyncio.create_task(collector.run(interval=interval))
@@ -305,14 +313,16 @@ def main():
     parser = argparse.ArgumentParser(description="OEFO Dashboard Streaming Server")
     parser.add_argument("--port", type=int, default=8765,
                         help="HTTP port (default: 8765)")
-    parser.add_argument("--host", type=str, default="0.0.0.0",
-                        help="Bind address (default: 0.0.0.0)")
+    parser.add_argument("--host", type=str, default="127.0.0.1",
+                        help="Bind address (default: 127.0.0.1)")
     parser.add_argument("--interval", type=float, default=5.0,
                         help="Snapshot refresh interval in seconds (default: 5)")
     parser.add_argument("--demo", action="store_true",
                         help="Use sample data (no real pipeline dirs needed)")
     parser.add_argument("--base-dir", type=str, default=None,
                         help="OEFO base directory override")
+    parser.add_argument("--public", action="store_true",
+                        help="Enable public access with wildcard CORS (sets host to 0.0.0.0 and CORS to *)")
     parser.add_argument("--log-level", type=str, default="INFO",
                         choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     args = parser.parse_args()
@@ -322,8 +332,15 @@ def main():
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
 
+    # If --public flag is set, change host to 0.0.0.0 and enable CORS wildcard
+    if args.public:
+        args.host = "0.0.0.0"
+        cors_origin = "*"
+    else:
+        cors_origin = None
+
     collector = SnapshotCollector(demo=args.demo, base_dir=args.base_dir)
-    server = DashboardServer(collector, host=args.host, port=args.port)
+    server = DashboardServer(collector, host=args.host, port=args.port, cors_origin=cors_origin)
 
     async def run():
         # Start collector and server concurrently
