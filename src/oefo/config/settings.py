@@ -303,10 +303,25 @@ def validate_api_keys() -> bool:
     Returns:
         True if all required keys are set, False otherwise.
     """
-    if not ANTHROPIC_API_KEY:
-        print("ERROR: ANTHROPIC_API_KEY not set in environment.")
-        return False
-    return True
+    configured = []
+    if ANTHROPIC_API_KEY:
+        configured.append("anthropic")
+    if OPENAI_API_KEY:
+        configured.append("openai")
+
+    if configured:
+        print(f"INFO: Cloud LLM credentials configured for {', '.join(configured)}.")
+        return True
+
+    if LLM_PROVIDER.lower() == "ollama":
+        print("INFO: OEFO_LLM_PROVIDER=ollama; no cloud API key required.")
+        return True
+
+    print(
+        "ERROR: No LLM credentials configured. Set ANTHROPIC_API_KEY or "
+        "OPENAI_API_KEY, or set OEFO_LLM_PROVIDER=ollama for local-only use."
+    )
+    return False
 
 
 def validate_directories() -> bool:

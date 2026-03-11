@@ -644,7 +644,7 @@ def handle_status(args: argparse.Namespace) -> int:
     try:
         from .config.settings import (
             DATA_DIR, RAW_DIR, EXTRACTED_DIR, FINAL_DIR,
-            ANTHROPIC_API_KEY, LLM_PROVIDER
+            ANTHROPIC_API_KEY, OPENAI_API_KEY, LLM_PROVIDER
         )
 
         print("OEFO Pipeline Status")
@@ -662,7 +662,7 @@ def handle_status(args: argparse.Namespace) -> int:
 
         print(f"\nConfiguration:")
         print(f"  LLM provider:             {LLM_PROVIDER}")
-        print(f"  API key configured:       {'Yes' if ANTHROPIC_API_KEY else 'No ⚠'}")
+        print(f"  Cloud API key configured: {'Yes' if (ANTHROPIC_API_KEY or OPENAI_API_KEY) else 'No ⚠'}")
         print(f"  Data directory:           {DATA_DIR}")
 
         if args.detailed:
