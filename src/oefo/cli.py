@@ -80,6 +80,67 @@ Examples:
 
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
+    # --- Run (Pipeline Agent) command ---
+    run_parser = subparsers.add_parser(
+        'run',
+        help='Run the full pipeline via the Pipeline Agent'
+    )
+    run_parser.add_argument(
+        '--type',
+        choices=['full', 'weekly_dfi', 'monthly_regulatory', 'quarterly_sec', 'qc_only', 'export_only'],
+        default='full',
+        help='Run type (default: full)'
+    )
+    run_parser.add_argument(
+        '--sources',
+        type=str,
+        default=None,
+        help='Comma-separated list of sources (e.g., ifc,ebrd,gcf)'
+    )
+    run_parser.add_argument(
+        '--skip-scrape',
+        action='store_true',
+        help='Skip the scraping phase'
+    )
+    run_parser.add_argument(
+        '--skip-extract',
+        action='store_true',
+        help='Skip the extraction phase'
+    )
+    run_parser.add_argument(
+        '--skip-qc',
+        action='store_true',
+        help='Skip the QC phase'
+    )
+    run_parser.add_argument(
+        '--skip-export',
+        action='store_true',
+        help='Skip the export phase'
+    )
+    run_parser.add_argument(
+        '--qc-rules-only',
+        action='store_true',
+        help='Only run rule-based QC (skip LLM layer)'
+    )
+    run_parser.add_argument(
+        '--force-scrape',
+        action='store_true',
+        help='Force re-scraping even if data exists'
+    )
+    run_parser.add_argument(
+        '--formats',
+        type=str,
+        default='excel,csv,parquet',
+        help='Comma-separated export formats (default: excel,csv,parquet)'
+    )
+    run_parser.add_argument(
+        '--parallel',
+        type=int,
+        default=4,
+        help='Number of parallel extraction workers (default: 4)'
+    )
+    run_parser.set_defaults(func=handle_run)
+
     # --- Scrape command ---
     scrape_parser = subparsers.add_parser(
         'scrape',
@@ -709,6 +770,46 @@ def handle_config(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"Error reading config: {e}", file=sys.stderr)
         if args.verbose:
+            import traceback
+            traceback.print_exc()
+        return 1
+
+
+def handle_run(args: argparse.Namespace) -> int:
+    """Handle run command — execute Pipeline Agent."""
+    try:
+        from .agent import PipelineAgent, RunType
+
+        run_type = RunType(args.type)
+        sources = args.sources.split(",") if args.sources else None
+        export_formats = args.formats.split(",") if args.formats else ["excel", "csv", "parquet"]
+
+        agent = PipelineAgent(
+            run_type=run_type,
+            sources=sources,
+            qc_full=not args.qc_rules_only,
+            export_formats=export_formats,
+            skip_scrape=args.skip_scrape,
+            skip_extract=args.skip_extract,
+            skip_qc=args.skip_qc,
+            skip_export=args.skip_export,
+            force_scrape=args.force_scrape,
+            parallel_workers=args.parallel,
+            verbose=getattr(args, 'verbose', False),
+        )
+
+        report = agent.run()
+
+        if report.overall_success:
+            return 0
+        elif report.halted:
+            return 2
+        else:
+            return 1
+
+    except Exception as e:
+        print(f"Error running Pipeline Agent: {e}", file=sys.stderr)
+        if getattr(args, 'verbose', False):
             import traceback
             traceback.print_exc()
         return 1

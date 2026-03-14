@@ -49,16 +49,16 @@ Default model for quality control and validation checks.
 
 LLM_PROVIDER: str = os.environ.get("OEFO_LLM_PROVIDER", "anthropic")
 """
-Preferred LLM provider. Options: 'anthropic', 'openai', 'ollama'.
-Fallback chain: Anthropic Claude → OpenAI GPT 5.4 → Ollama (Qwen 3.5 local).
+Preferred LLM provider. Options: 'anthropic', 'openai', 'claude_code', 'ollama'.
+Fallback chain: Anthropic API → OpenAI GPT 5.4 → Claude Code CLI (Max Plan) → Ollama.
 """
 
 LLM_FALLBACK_ORDER: list = os.environ.get(
-    "OEFO_LLM_FALLBACK_ORDER", "anthropic,openai,ollama"
+    "OEFO_LLM_FALLBACK_ORDER", "anthropic,openai,claude_code,ollama"
 ).split(",")
 """
 Fallback order for LLM providers. Comma-separated list.
-Default: anthropic → openai (GPT 5.4) → ollama (Qwen 3.5).
+Default: anthropic → openai (GPT 5.4) → claude_code (Max Plan) → ollama (Qwen 3.5).
 """
 
 OPENAI_API_KEY: Optional[str] = os.environ.get("OPENAI_API_KEY")
@@ -309,10 +309,13 @@ def get_config() -> Dict[str, any]:
 
 def validate_api_keys() -> bool:
     """
-    Validate that required API keys are present.
+    Validate that at least one LLM provider is available.
+
+    Checks API keys for cloud providers, Claude Code CLI availability,
+    and Ollama local server.
 
     Returns:
-        True if all required keys are set, False otherwise.
+        True if at least one provider is available, False otherwise.
     """
     configured = []
     if ANTHROPIC_API_KEY:
@@ -320,17 +323,32 @@ def validate_api_keys() -> bool:
     if OPENAI_API_KEY:
         configured.append("openai")
 
+    # Check Claude Code CLI availability (no API key needed — uses Max Plan)
+    import shutil
+    if shutil.which("claude"):
+        configured.append("claude_code (Max Plan)")
+
     if configured:
-        print(f"INFO: Cloud LLM credentials configured for {', '.join(configured)}.")
+        print(f"INFO: LLM providers available: {', '.join(configured)}.")
         return True
 
     if LLM_PROVIDER.lower() == "ollama":
         print("INFO: OEFO_LLM_PROVIDER=ollama; no cloud API key required.")
         return True
 
+    if LLM_PROVIDER.lower() == "claude_code":
+        print(
+            "ERROR: OEFO_LLM_PROVIDER=claude_code but 'claude' CLI not found. "
+            "Install with: brew install node && npm install -g @anthropic-ai/claude-code"
+        )
+        return False
+
     print(
-        "ERROR: No LLM credentials configured. Set ANTHROPIC_API_KEY or "
-        "OPENAI_API_KEY, or set OEFO_LLM_PROVIDER=ollama for local-only use."
+        "ERROR: No LLM providers configured. Options:\n"
+        "  1. Set ANTHROPIC_API_KEY (for Anthropic API)\n"
+        "  2. Set OPENAI_API_KEY (for OpenAI API)\n"
+        "  3. Install Claude Code CLI: npm i -g @anthropic-ai/claude-code (uses Max Plan)\n"
+        "  4. Set OEFO_LLM_PROVIDER=ollama (for local Ollama server)"
     )
     return False
 

@@ -5,9 +5,10 @@ Provides a unified interface for calling different LLM providers with automatic
 fallback. The pipeline is not locked into a single vendor.
 
 Supported providers and fallback chain:
-  1. Anthropic Claude (primary)  — claude-sonnet-4-20250514
+  1. Anthropic Claude API (primary)  — claude-sonnet-4-20250514
   2. OpenAI GPT 5.4 (fallback 1) — gpt-5.4
-  3. Ollama / Qwen 3.5 (fallback 2, fully local/offline) — qwen3.5
+  3. Claude Code CLI (fallback 2) — uses Max Plan subscription, no API key
+  4. Ollama / Qwen 3.5 (fallback 3, fully local/offline) — qwen3.5
 
 Usage:
     from oefo.llm_client import LLMClient, LLMProvider
@@ -42,6 +43,7 @@ class LLMProvider(str, Enum):
     """Supported LLM providers."""
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
+    CLAUDE_CODE = "claude_code"
     OLLAMA = "ollama"
 
 
@@ -420,12 +422,211 @@ class OllamaBackend(BaseLLMBackend):
 
 
 # ---------------------------------------------------------------------------
+# Claude Code CLI Backend — uses Max Plan subscription
+# ---------------------------------------------------------------------------
+
+class ClaudeCodeBackend(BaseLLMBackend):
+    """
+    Claude Code CLI backend — uses the user's Max Plan subscription.
+
+    Calls the ``claude`` CLI in pipe mode (``-p``) to process prompts.
+    No API key required — authentication is handled by the Claude Code
+    session tied to the user's Max Plan account.
+
+    Requirements:
+        - Node.js installed (``brew install node``)
+        - Claude Code CLI installed (``npm install -g @anthropic-ai/claude-code``)
+        - User authenticated via ``claude login``
+    """
+
+    provider = LLMProvider.CLAUDE_CODE
+    DEFAULT_MODEL = "claude-sonnet-4-20250514"
+    DEFAULT_VISION_MODEL = "claude-sonnet-4-20250514"
+
+    def __init__(self, claude_bin: Optional[str] = None):
+        import shutil
+        self.claude_bin = claude_bin or os.getenv(
+            "OEFO_CLAUDE_BIN",
+            shutil.which("claude") or "claude",
+        )
+
+    def is_available(self) -> bool:
+        """Check if the ``claude`` CLI is installed and responsive."""
+        import shutil
+        import subprocess
+
+        if not shutil.which(self.claude_bin):
+            return False
+        try:
+            result = subprocess.run(
+                [self.claude_bin, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    def complete(
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.0,
+        model: Optional[str] = None,
+    ) -> LLMResponse:
+        """Run a text completion via ``claude -p``."""
+        import subprocess
+
+        cmd = [self.claude_bin, "-p", "--output-format", "json", "--max-turns", "1"]
+        if system:
+            cmd.extend(["--system-prompt", system])
+
+        logger.debug(f"ClaudeCode complete: prompt length={len(prompt)}")
+
+        try:
+            result = subprocess.run(
+                cmd,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("claude CLI timed out after 300 s")
+
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"claude CLI exited {result.returncode}: {result.stderr[:500]}"
+            )
+
+        # Parse JSON output  ({"result": "...", "cost_usd": ..., ...})
+        data = None
+        try:
+            data = json.loads(result.stdout)
+            text = data.get("result", result.stdout)
+            cost = data.get("cost_usd", 0)
+        except (json.JSONDecodeError, ValueError):
+            text = result.stdout.strip()
+            cost = 0
+
+        return LLMResponse(
+            text=text,
+            provider=self.provider,
+            model=model or self.DEFAULT_MODEL,
+            usage={"cost_usd": cost},
+            raw_response=data if isinstance(data, dict) else None,
+        )
+
+    def vision(
+        self,
+        images: List[bytes],
+        prompt: str,
+        system: Optional[str] = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.0,
+        model: Optional[str] = None,
+    ) -> LLMResponse:
+        """
+        Run a vision completion via ``claude -p`` with temp image files.
+
+        Images are written to temporary PNG files so the Claude Code agent
+        can read them using its built-in Read tool.
+        """
+        import subprocess
+        import tempfile
+
+        temp_files: List[str] = []
+        try:
+            # Write images to temp files
+            for i, img_data in enumerate(images):
+                if isinstance(img_data, str):
+                    img_data = base64.b64decode(img_data)
+
+                tf = tempfile.NamedTemporaryFile(
+                    suffix=".png", prefix=f"oefo_page{i+1}_", delete=False,
+                )
+                tf.write(img_data)
+                tf.close()
+                temp_files.append(tf.name)
+
+            # Build compound prompt referencing the image paths
+            parts = []
+            if system:
+                parts.append(system)
+            parts.append(
+                "I have saved document page images to the following temporary files. "
+                "Please read each image file and then answer the extraction prompt below."
+            )
+            for i, path in enumerate(temp_files):
+                parts.append(f"  Page {i + 1}: {path}")
+            parts.append("")
+            parts.append(prompt)
+            full_prompt = "\n".join(parts)
+
+            cmd = [
+                self.claude_bin, "-p",
+                "--output-format", "json",
+                "--max-turns", "5",
+                "--allowedTools", "Read",
+            ]
+
+            logger.debug(
+                f"ClaudeCode vision: {len(images)} images, "
+                f"prompt length={len(prompt)}"
+            )
+
+            try:
+                result = subprocess.run(
+                    cmd,
+                    input=full_prompt,
+                    capture_output=True,
+                    text=True,
+                    timeout=600,
+                )
+            except subprocess.TimeoutExpired:
+                raise RuntimeError("claude CLI vision timed out after 600 s")
+
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"claude CLI vision exited {result.returncode}: "
+                    f"{result.stderr[:500]}"
+                )
+
+            data = None
+            try:
+                data = json.loads(result.stdout)
+                text = data.get("result", result.stdout)
+                cost = data.get("cost_usd", 0)
+            except (json.JSONDecodeError, ValueError):
+                text = result.stdout.strip()
+                cost = 0
+
+            return LLMResponse(
+                text=text,
+                provider=self.provider,
+                model=model or self.DEFAULT_VISION_MODEL,
+                usage={"cost_usd": cost},
+                raw_response=data if isinstance(data, dict) else None,
+            )
+        finally:
+            # Clean up temp files
+            for path in temp_files:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+
+
+# ---------------------------------------------------------------------------
 # Provider Registry & Unified Client
 # ---------------------------------------------------------------------------
 
 BACKEND_REGISTRY: Dict[LLMProvider, type] = {
     LLMProvider.ANTHROPIC: AnthropicBackend,
     LLMProvider.OPENAI: OpenAIBackend,
+    LLMProvider.CLAUDE_CODE: ClaudeCodeBackend,
     LLMProvider.OLLAMA: OllamaBackend,
 }
 
@@ -452,12 +653,14 @@ class LLMClient:
     """
 
     # Default fallback order:
-    #   1. Anthropic Claude (primary)
-    #   2. OpenAI GPT 5.4 (fallback 1)
-    #   3. Ollama / Qwen 3.5 (fallback 2, local)
+    #   1. Anthropic Claude API (primary — needs ANTHROPIC_API_KEY)
+    #   2. OpenAI GPT 5.4 (fallback 1 — needs OPENAI_API_KEY)
+    #   3. Claude Code CLI (fallback 2 — uses Max Plan, no API key)
+    #   4. Ollama / Qwen 3.5 (fallback 3, local)
     DEFAULT_FALLBACK_ORDER = [
         LLMProvider.ANTHROPIC,
         LLMProvider.OPENAI,
+        LLMProvider.CLAUDE_CODE,
         LLMProvider.OLLAMA,
     ]
 
@@ -494,7 +697,7 @@ class LLMClient:
             if cls:
                 try:
                     key = self.api_keys.get(p)
-                    if p == LLMProvider.OLLAMA:
+                    if p in (LLMProvider.OLLAMA, LLMProvider.CLAUDE_CODE):
                         self._backends[p] = cls()
                     elif key:
                         self._backends[p] = cls(api_key=key)
@@ -518,7 +721,8 @@ class LLMClient:
         else:
             logger.warning(
                 "LLMClient: No LLM providers available. "
-                "Set ANTHROPIC_API_KEY or OPENAI_API_KEY, "
+                "Set ANTHROPIC_API_KEY, OPENAI_API_KEY, "
+                "install Claude Code CLI (npm i -g @anthropic-ai/claude-code), "
                 "or start Ollama locally (with Qwen 3.5)."
             )
 

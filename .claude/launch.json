@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "oefo-dashboard",
+      "runtimeExecutable": "/Users/lucianocaratori/miniconda3/bin/python",
+      "runtimeArgs": ["-m", "oefo.dashboard.server", "--demo", "--port", "8770"],
+      "port": 8770
+    }
+  ]
+}
