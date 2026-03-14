@@ -1,0 +1,846 @@
+From 1961b1ac7ed4eb25e3a6059c30c6f834a6751cef Mon Sep 17 00:00:00 2001
+From: Luciano <luciano@caratori.com.ar>
+Date: Wed, 11 Mar 2026 08:19:34 -0300
+Subject: [PATCH] Fix 35 inconsistencies and packaging issues across codebase
+
+Critical fixes:
+- setup.py: Fix nested path bug reading __init__.py version, correct repo URL,
+  update python_requires to >=3.10, add package_data for assets
+- Unify duplicate enums between models.py and config/taxonomy.py (Scale,
+  ExtractionTier, QCStatus, DebtType now use consistent values)
+- Fix Ofgem scraper casing bug: normalize registry keys to uppercase,
+  add case-insensitive lookup in get_scraper()
+- Fix units mismatch: models.py financial fields (kd_nominal, ke_nominal,
+  wacc_nominal, etc.) now use percentage points to match thresholds.py
+
+High-priority fixes:
+- Add pyproject.toml with modern build system configuration
+- Add MIT LICENSE file
+- Add MANIFEST.in for source distribution
+- Fix CLI/README mismatches: correct command syntax, flags, and examples
+- Align dashboard port to 8765 across cli.py and server.py
+- Add start_server() function to dashboard/server.py (imported by cli.py)
+- Add .env.example with documented environment variables
+- Add tests/ directory with initial model tests
+
+Medium fixes:
+- Remove duplicate __version__/__author__ from config/__init__.py and
+  extraction/__init__.py
+- Replace deprecated urllib3 method_whitelist with allowed_methods
+- Use centralized USER_AGENT from config.settings in scrapers/base.py
+- Add data/extracted/ and data/final/ to .gitignore
+- Defer directory creation in settings.py to avoid import side effects
+- Fix extraction pipeline to use ExtractionTier enum values
+- Fix README: correct tier count (3 not 4), remove missing doc link
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+---
+ .env.example           | 31 +++++++++++++
+ .gitignore             |  3 ++
+ LICENSE                | 21 +++++++++
+ MANIFEST.in            |  6 +++
+ README.md              | 28 ++++++------
+ config/__init__.py     |  4 +-
+ config/settings.py     | 11 +++--
+ config/taxonomy.py     | 59 +++++++++++++++----------
+ dashboard/server.py    | 33 ++++++++++++--
+ extraction/__init__.py |  2 +-
+ extraction/pipeline.py | 19 ++++----
+ models.py              | 32 +++++++-------
+ pyproject.toml         | 41 +++++++++++++++++
+ scrapers/__init__.py   |  8 ++--
+ scrapers/base.py       | 15 ++-----
+ setup.py               | 20 ++++++---
+ tests/__init__.py      |  1 +
+ tests/test_models.py   | 99 ++++++++++++++++++++++++++++++++++++++++++
+ 18 files changed, 340 insertions(+), 93 deletions(-)
+ create mode 100644 .env.example
+ create mode 100644 LICENSE
+ create mode 100644 MANIFEST.in
+ create mode 100644 pyproject.toml
+ create mode 100644 tests/__init__.py
+ create mode 100644 tests/test_models.py
+
+diff --git a/.env.example b/.env.example
+new file mode 100644
+index 0000000..510bd18
+--- /dev/null
++++ b/.env.example
+@@ -0,0 +1,31 @@
++# OEFO Environment Variables
++# Copy this file to .env and fill in your values
++
++# Required: At least one LLM provider API key
++ANTHROPIC_API_KEY=your-anthropic-key-here
++# OPENAI_API_KEY=your-openai-key-here  # Optional fallback
++
++# Optional: Anthropic organization ID
++# ANTHROPIC_ORG_ID=your-org-id
++
++# Optional: LLM provider and model settings
++# OEFO_LLM_PROVIDER=anthropic
++# OEFO_VISION_MODEL=claude-sonnet-4-20250514
++# OEFO_QC_MODEL=claude-sonnet-4-20250514
++
++# Optional: Data directories
++# OEFO_DATA_DIR=./data
++# OEFO_BASE_DIR=.
++
++# Optional: Logging
++# OEFO_LOG_LEVEL=INFO
++# OEFO_DEBUG=false
++
++# Optional: Processing
++# OEFO_MAX_WORKERS=4
++# OEFO_ENABLE_CACHING=true
++# OEFO_ENABLE_PARALLEL_PROCESSING=true
++
++# Optional: Ollama (local LLM fallback)
++# OLLAMA_BASE_URL=http://localhost:11434
++# OEFO_OLLAMA_MODEL=qwen3.5
+diff --git a/.gitignore b/.gitignore
+index a5a7d84..d2fafc0 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -33,7 +33,10 @@ logs/
+ # Data (scraped/extracted - regenerable)
+ data/raw/
+ data/processed/
++data/extracted/
++data/final/
+ data/cache/
++.cache/
+ *.parquet
+ *.db
+ *.sqlite3
+diff --git a/LICENSE b/LICENSE
+new file mode 100644
+index 0000000..d4e0a7e
+--- /dev/null
++++ b/LICENSE
+@@ -0,0 +1,21 @@
++MIT License
++
++Copyright (c) 2024 ET Finance
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.
+diff --git a/MANIFEST.in b/MANIFEST.in
+new file mode 100644
+index 0000000..2445fbb
+--- /dev/null
++++ b/MANIFEST.in
+@@ -0,0 +1,6 @@
++include LICENSE
++include README.md
++include requirements.txt
++include pyproject.toml
++recursive-include oefo/dashboard *.html *.json
++recursive-include oefo/config *.json *.md
+diff --git a/README.md b/README.md
+index 915ce2c..4be3d2d 100644
+--- a/README.md
++++ b/README.md
+@@ -7,7 +7,7 @@ OEFO automates the extraction of observed financing terms — cost of debt (Kd),
+ ## Key Features
+ 
+ - **Multi-source scraping** — IFC, EBRD, GCF, SEC EDGAR, plus regulatory agencies (ANEEL, AER, Ofgem, FERC)
+-- **4-tier extraction pipeline** — pdfplumber text → Tesseract OCR → LLM Vision → human-in-the-loop
++- **3-tier extraction pipeline** — pdfplumber text → Tesseract OCR → LLM Vision (with cross-referencing)
+ - **3-layer QC agent** — rule-based validation → statistical benchmarks → LLM cross-validation
+ - **Full traceability** — every observation carries a provenance chain from source document to final value
+ - **Multiple output formats** — Excel workbooks, CSV, Parquet, JSON
+@@ -17,7 +17,7 @@ OEFO automates the extraction of observed financing terms — cost of debt (Kd),
+ 
+ ```bash
+ # Clone and install
+-git clone https://github.com/et-finance/oefo.git
++git clone https://github.com/lcarato/oefo.git
+ cd oefo
+ pip install -e .
+ 
+@@ -26,9 +26,10 @@ export ANTHROPIC_API_KEY=your-key-here
+ 
+ # Run the full pipeline for a source
+ oefo scrape ifc
+-oefo extract --source ifc
+-oefo qc --source ifc
+-oefo export --format excel
++oefo extract ./data/raw/ifc/report.pdf --source-type dfi
++oefo extract-batch ./data/raw/ifc --source-type dfi
++oefo qc --full
++oefo export --format excel --output results.xlsx
+ ```
+ 
+ ## Architecture
+@@ -52,14 +53,14 @@ oefo/
+ 
+ | Command | Description |
+ |---------|-------------|
+-| `oefo scrape <source>` | Scrape documents from a source |
+-| `oefo extract --source <source>` | Extract financing terms from scraped documents |
+-| `oefo extract-batch --sources ifc,ebrd` | Batch extraction across multiple sources |
+-| `oefo qc --source <source>` | Run QC validation on extracted observations |
+-| `oefo export --format excel` | Export observations to Excel/CSV/Parquet/JSON |
+-| `oefo dashboard` | Launch the live monitoring dashboard |
+-| `oefo status` | Show pipeline status and statistics |
+-| `oefo config` | Display current configuration |
++| `oefo scrape <source>` | Scrape documents from a source (ifc, ebrd, ofgem, etc.) |
++| `oefo extract <pdf> --source-type <type>` | Extract financing terms from a single PDF |
++| `oefo extract-batch <dir> --source-type <type>` | Batch extraction from a directory of PDFs |
++| `oefo qc [--rules-only\|--full]` | Run QC validation on extracted observations |
++| `oefo export --format <fmt> --output <path>` | Export observations to Excel/CSV/Parquet/JSON |
++| `oefo dashboard [--port 8765]` | Launch the live monitoring dashboard |
++| `oefo status [--detailed]` | Show pipeline status and statistics |
++| `oefo config [--validate]` | Display or validate current configuration |
+ 
+ ## Configuration
+ 
+@@ -83,7 +84,6 @@ Where Ke = cost of equity, Kd = cost of debt, E/V = equity weight, D/V = debt we
+ 
+ ## Documentation
+ 
+-- [Deployment Guide](OEFO_Deployment_Guide.docx)
+ - [Installation Procedure](OEFO_Installation_Procedure.docx)
+ - [User Guide](OEFO_User_Guide.docx)
+ - [Agent Operations](OEFO_Agent_Autonomous_Operations.md)
+diff --git a/config/__init__.py b/config/__init__.py
+index 0acf957..bed80ab 100644
+--- a/config/__init__.py
++++ b/config/__init__.py
+@@ -203,6 +203,4 @@ __all__ = [
+     "print_config",
+ ]
+ 
+-__version__ = "0.1.0"
+-__author__ = "OEFO Development Team"
+-__description__ = "Configuration module for Open Energy Finance Observatory (OEFO) project"
++# Version and author inherited from oefo package — do not duplicate here
+diff --git a/config/settings.py b/config/settings.py
+index 14a9a0d..bd2e2c7 100644
+--- a/config/settings.py
++++ b/config/settings.py
+@@ -142,9 +142,14 @@ CACHE_DIR: Path = Path(os.environ.get("OEFO_CACHE_DIR", BASE_DIR / ".cache"))
+ Directory for caching (OCR outputs, model responses, etc.).
+ """
+ 
+-# Create directories if they don't exist
+-for directory in [DATA_DIR, RAW_DIR, EXTRACTED_DIR, FINAL_DIR, LOGS_DIR, CACHE_DIR]:
+-    directory.mkdir(parents=True, exist_ok=True)
++def ensure_directories() -> None:
++    """Create required directories if they don't exist.
++
++    Call this explicitly before pipeline operations rather than at import time,
++    to avoid side effects when simply importing the config module.
++    """
++    for directory in [DATA_DIR, RAW_DIR, EXTRACTED_DIR, FINAL_DIR, LOGS_DIR, CACHE_DIR]:
++        directory.mkdir(parents=True, exist_ok=True)
+ 
+ # =============================================================================
+ # API Keys and Authentication
+diff --git a/config/taxonomy.py b/config/taxonomy.py
+index 2cd4387..525c32f 100644
+--- a/config/taxonomy.py
++++ b/config/taxonomy.py
+@@ -115,14 +115,17 @@ class Technology(Enum):
+ 
+ 
+ class Scale(Enum):
+-    """Project or asset scale classification."""
+-    UTILITY_SCALE = "utility_scale"
+-    COMMERCIAL_INDUSTRIAL = "commercial_industrial"
+-    DISTRIBUTED_RESIDENTIAL = "distributed_residential"
+-    PORTFOLIO = "portfolio"
+-    MEGA_PROJECT = "mega_project"
+-    REGULATED_ASSET = "regulated_asset"
+-    PILOT_DEMONSTRATION = "pilot_demonstration"
++    """Project or asset scale classification.
++
++    Values aligned with models.py Scale enum for consistency.
++    """
++    UTILITY = "utility"
++    COMMERCIAL = "commercial"
++    INDUSTRIAL = "industrial"
++    RESIDENTIAL = "residential"
++    COMMUNITY = "community"
++    MICRO = "micro"
++    DISTRIBUTED = "distributed"
+ 
+ 
+ class ValueChainPosition(Enum):
+@@ -165,19 +168,24 @@ class ExtractionMethod(Enum):
+ 
+ 
+ class ExtractionTier(Enum):
+-    """Processing tier used for extraction (increasing complexity/cost)."""
+-    TIER_1_TEXT = "tier_1_text"
+-    TIER_2_OCR = "tier_2_ocr"
+-    TIER_3_VISION = "tier_3_vision"
+-    TIER_4_MANUAL = "tier_4_manual"
++    """Processing tier used for extraction (increasing complexity/cost).
++
++    Values aligned with models.py ExtractionTier enum.
++    """
++    TIER_1 = "tier_1"  # High quality, direct text extraction
++    TIER_2 = "tier_2"  # Moderate quality, OCR-based
++    TIER_3 = "tier_3"  # Lower quality, vision-based inference
+ 
+ 
+ class QCStatus(Enum):
+-    """Quality control review status of extracted data."""
+-    AUTO_ACCEPTED = "auto_accepted"
+-    HUMAN_REVIEWED = "human_reviewed"
+-    HUMAN_CORRECTED = "human_corrected"
+-    REJECTED = "rejected"
++    """Quality control review status of extracted data.
++
++    Values aligned with models.py QCStatus enum.
++    """
++    PASSED = "passed"
++    FAILED = "failed"
++    FLAGGED = "flagged"
++    PENDING_REVIEW = "pending_review"
+ 
+ 
+ class ConfidenceLevel(Enum):
+@@ -188,12 +196,17 @@ class ConfidenceLevel(Enum):
+ 
+ 
+ class DebtType(Enum):
+-    """Classification of debt instrument by seniority and structure."""
+-    SENIOR = "senior"
+-    SUBORDINATED = "subordinated"
+-    MEZZANINE = "mezzanine"
++    """Classification of debt instrument by type.
++
++    Values aligned with models.py DebtType enum.
++    """
++    BANK_LOAN = "bank_loan"
+     BOND = "bond"
+-    CONCESSIONAL = "concessional"
++    CONVERTIBLE = "convertible"
++    CREDIT_LINE = "credit_line"
++    EQUIPMENT_FINANCING = "equipment_financing"
++    MEZZANINE = "mezzanine"
++    SUPPLIER_CREDIT = "supplier_credit"
+ 
+ 
+ class KDRateBenchmark(Enum):
+diff --git a/dashboard/server.py b/dashboard/server.py
+index 27cec4a..99034ee 100644
+--- a/dashboard/server.py
++++ b/dashboard/server.py
+@@ -11,7 +11,7 @@ The dashboard connects via EventSource and re-renders charts in real time
+ without any page refresh.
+ 
+ Usage:
+-    # Default: http://localhost:8787
++    # Default: http://localhost:8765
+     python -m oefo.dashboard.server
+ 
+     # Custom port and interval
+@@ -146,7 +146,7 @@ class DashboardServer:
+     """
+ 
+     def __init__(self, collector: SnapshotCollector, host: str = "0.0.0.0",
+-                 port: int = 8787):
++                 port: int = 8765):
+         self.collector = collector
+         self.host = host
+         self.port = port
+@@ -272,14 +272,39 @@ class DashboardServer:
+             await server.serve_forever()
+ 
+ 
++# ---------------------------------------------------------------------------
++# Public API for CLI integration
++# ---------------------------------------------------------------------------
++
++def start_server(host: str = "0.0.0.0", port: int = 8765,
++                 interval: float = 5.0, demo: bool = False):
++    """Start the dashboard server programmatically (called by cli.py).
++
++    Args:
++        host: Bind address.
++        port: HTTP port.
++        interval: Snapshot refresh interval in seconds.
++        demo: Use sample data instead of real pipeline data.
++    """
++    collector = SnapshotCollector(demo=demo)
++    server = DashboardServer(collector, host=host, port=port)
++
++    async def run():
++        collector_task = asyncio.create_task(collector.run(interval=interval))
++        server_task = asyncio.create_task(server.start())
++        await asyncio.gather(collector_task, server_task)
++
++    asyncio.run(run())
++
++
+ # ---------------------------------------------------------------------------
+ # Entry point
+ # ---------------------------------------------------------------------------
+ 
+ def main():
+     parser = argparse.ArgumentParser(description="OEFO Dashboard Streaming Server")
+-    parser.add_argument("--port", type=int, default=8787,
+-                        help="HTTP port (default: 8787)")
++    parser.add_argument("--port", type=int, default=8765,
++                        help="HTTP port (default: 8765)")
+     parser.add_argument("--host", type=str, default="0.0.0.0",
+                         help="Bind address (default: 0.0.0.0)")
+     parser.add_argument("--interval", type=float, default=5.0,
+diff --git a/extraction/__init__.py b/extraction/__init__.py
+index a2460df..622c86d 100644
+--- a/extraction/__init__.py
++++ b/extraction/__init__.py
+@@ -55,4 +55,4 @@ __all__ = [
+     "get_prompt",
+ ]
+ 
+-__version__ = "1.0.0"
++# Version inherited from oefo package — do not duplicate here
+diff --git a/extraction/pipeline.py b/extraction/pipeline.py
+index aa22ff8..5950368 100644
+--- a/extraction/pipeline.py
++++ b/extraction/pipeline.py
+@@ -18,6 +18,7 @@ import logging
+ from pathlib import Path
+ from typing import List, Optional
+ 
++from ..models import ExtractionTier
+ from .text import TextExtractor
+ from .ocr import OCRExtractor
+ from .vision import VisionExtractor
+@@ -176,7 +177,7 @@ class ExtractionPipeline:
+         self.logger.info(f"Selected tier: {tier}")
+ 
+         # Step 2: Run initial extraction
+-        if tier == "tier_1_text":
++        if tier == ExtractionTier.TIER_1.value:
+             results = self.run_tier1(str(pdf_path), source_type)
+             all_results.extend(results)
+ 
+@@ -195,7 +196,7 @@ class ExtractionPipeline:
+                 )
+                 all_results = self.cross_reference(results, vision_results)
+ 
+-        elif tier == "tier_2_ocr":
++        elif tier == ExtractionTier.TIER_2.value:
+             results = self.run_tier2(str(pdf_path), source_type)
+             all_results.extend(results)
+ 
+@@ -255,7 +256,7 @@ class ExtractionPipeline:
+ 
+             if not result.get("success", False):
+                 self.logger.info("Text extraction failed; using Tier 2 OCR")
+-                return "tier_2_ocr"
++                return ExtractionTier.TIER_2.value
+ 
+             # Check text quality across pages
+             pages = result.get("pages", [])
+@@ -273,16 +274,16 @@ class ExtractionPipeline:
+                 self.logger.info(
+                     f"Text quality sufficient ({quality_ratio:.0%} pages). Using Tier 1."
+                 )
+-                return "tier_1_text"
++                return ExtractionTier.TIER_1.value
+             else:
+                 self.logger.info(
+                     f"Text quality insufficient ({quality_ratio:.0%} pages). Using Tier 2 OCR."
+                 )
+-                return "tier_2_ocr"
++                return ExtractionTier.TIER_2.value
+ 
+         except Exception as e:
+             self.logger.warning(f"Tier decision failed: {str(e)}. Defaulting to Tier 2.")
+-            return "tier_2_ocr"
++            return ExtractionTier.TIER_2.value
+ 
+     def run_tier1(self, pdf_path: str, source_type: str) -> List[ExtractionResult]:
+         """
+@@ -326,7 +327,7 @@ class ExtractionPipeline:
+                 if self.text_extractor.is_text_quality_sufficient(text):
+                     result = ExtractionResult(
+                         page_num=page_num,
+-                        tier="TIER_1_TEXT",
++                        tier=ExtractionTier.TIER_1.value,
+                         extracted_data={
+                             "text_length": len(text),
+                             "tables_detected": tables_found,
+@@ -384,7 +385,7 @@ class ExtractionPipeline:
+                 if self.text_extractor.is_text_quality_sufficient(text):
+                     result = ExtractionResult(
+                         page_num=page_num,
+-                        tier="TIER_2_OCR",
++                        tier=ExtractionTier.TIER_2.value,
+                         extracted_data={
+                             "ocr_confidence": confidence,
+                             "text_length": len(text),
+@@ -452,7 +453,7 @@ class ExtractionPipeline:
+ 
+                 result = ExtractionResult(
+                     page_num=page_num,
+-                    tier="TIER_3_VISION",
++                    tier=ExtractionTier.TIER_3.value,
+                     extracted_data={
+                         "items_extracted": len(extracted),
+                         "structured_data": extracted,
+diff --git a/models.py b/models.py
+index 036a488..23618c6 100644
+--- a/models.py
++++ b/models.py
+@@ -331,14 +331,14 @@ class Observation(BaseModel):
+     kd_nominal: Optional[float] = Field(
+         None,
+         ge=0,
+-        le=1,
+-        description="Nominal cost of debt (nominal interest rate)"
++        le=100,
++        description="Nominal cost of debt in percentage points (e.g. 5.5 for 5.5%)"
+     )
+     kd_real: Optional[float] = Field(
+         None,
+-        ge=-0.5,
+-        le=1,
+-        description="Real cost of debt (inflation-adjusted)"
++        ge=-50,
++        le=100,
++        description="Real cost of debt in percentage points, inflation-adjusted"
+     )
+     kd_benchmark: Optional[str] = Field(
+         None,
+@@ -376,14 +376,14 @@ class Observation(BaseModel):
+     ke_nominal: Optional[float] = Field(
+         None,
+         ge=0,
+-        le=2,
+-        description="Nominal cost of equity"
++        le=100,
++        description="Nominal cost of equity in percentage points (e.g. 12.0 for 12%)"
+     )
+     ke_real: Optional[float] = Field(
+         None,
+-        ge=-0.5,
+-        le=2,
+-        description="Real cost of equity (inflation-adjusted)"
++        ge=-50,
++        le=100,
++        description="Real cost of equity in percentage points, inflation-adjusted"
+     )
+     ke_estimation_method: Optional[str] = Field(
+         None,
+@@ -411,15 +411,15 @@ class Observation(BaseModel):
+     # WACC (Weighted Average Cost of Capital)
+     wacc_nominal: Optional[float] = Field(
+         None,
+-        ge=-0.5,
+-        le=1,
+-        description="Weighted average cost of capital (nominal)"
++        ge=-50,
++        le=100,
++        description="Weighted average cost of capital (nominal) in percentage points"
+     )
+     wacc_real: Optional[float] = Field(
+         None,
+-        ge=-0.5,
+-        le=1,
+-        description="Weighted average cost of capital (real, inflation-adjusted)"
++        ge=-50,
++        le=100,
++        description="Weighted average cost of capital (real) in percentage points"
+     )
+     tax_rate_applied: Optional[float] = Field(
+         None,
+diff --git a/pyproject.toml b/pyproject.toml
+new file mode 100644
+index 0000000..d264160
+--- /dev/null
++++ b/pyproject.toml
+@@ -0,0 +1,41 @@
++[build-system]
++requires = ["setuptools>=64", "wheel"]
++build-backend = "setuptools.backends._legacy:_Backend"
++
++[project]
++name = "oefo"
++dynamic = ["version"]
++description = "Open Energy Finance Observatory - Energy finance data toolkit"
++readme = "README.md"
++license = {text = "MIT"}
++requires-python = ">=3.10"
++authors = [
++    {name = "ET Finance"},
++]
++keywords = ["energy", "finance", "wacc", "renewable", "solar", "wind", "hydro"]
++classifiers = [
++    "Development Status :: 3 - Alpha",
++    "Intended Audience :: Developers",
++    "Intended Audience :: Science/Research",
++    "Topic :: Office/Business :: News/Diary",
++    "Topic :: Scientific/Engineering :: Information Analysis",
++    "License :: OSI Approved :: MIT License",
++    "Programming Language :: Python :: 3",
++    "Programming Language :: Python :: 3.10",
++    "Programming Language :: Python :: 3.11",
++    "Programming Language :: Python :: 3.12",
++]
++
++[project.urls]
++Homepage = "https://github.com/lcarato/oefo"
++Repository = "https://github.com/lcarato/oefo"
++
++[project.scripts]
++oefo = "oefo.cli:main"
++
++[tool.setuptools.dynamic]
++version = {attr = "oefo.__version__"}
++
++[tool.pytest.ini_options]
++testpaths = ["tests"]
++python_files = ["test_*.py"]
+diff --git a/scrapers/__init__.py b/scrapers/__init__.py
+index 6d43198..319dc68 100644
+--- a/scrapers/__init__.py
++++ b/scrapers/__init__.py
+@@ -61,7 +61,7 @@ _SCRAPERS = {
+     "SEC": SECEdgarScraper,
+     "ANEEL": ANEELScraper,
+     "AER": AERScraper,
+-    "Ofgem": OfgemScraper,
++    "OFGEM": OfgemScraper,
+     "FERC": FERCScraper,
+ }
+ 
+@@ -84,13 +84,15 @@ def get_scraper(name: str, **kwargs) -> BaseScraper:
+         ifc = get_scraper("IFC")
+         documents = ifc.scrape()
+     """
+-    if name not in _SCRAPERS:
++    # Normalize to uppercase for case-insensitive lookup
++    normalized = name.upper()
++    if normalized not in _SCRAPERS:
+         raise ValueError(
+             f"Unknown scraper: {name}. "
+             f"Available: {', '.join(_SCRAPERS.keys())}"
+         )
+ 
+-    scraper_class = _SCRAPERS[name]
++    scraper_class = _SCRAPERS[normalized]
+     return scraper_class(**kwargs)
+ 
+ 
+diff --git a/scrapers/base.py b/scrapers/base.py
+index 2dd4763..776cf55 100644
+--- a/scrapers/base.py
++++ b/scrapers/base.py
+@@ -25,6 +25,7 @@ from requests.adapters import HTTPAdapter
+ from urllib3.util.retry import Retry
+ 
+ from ..models import DocumentStatus, RawDocument, SourceType
++from ..config.settings import USER_AGENT
+ 
+ 
+ # Configure module logger
+@@ -97,23 +98,15 @@ class BaseScraper(ABC):
+             total=3,
+             backoff_factor=1.0,  # 1s, 2s, 4s
+             status_forcelist=[429, 500, 502, 503, 504],
+-            method_whitelist=["HEAD", "GET", "OPTIONS"],
++            allowed_methods=["HEAD", "GET", "OPTIONS"],
+         )
+ 
+         adapter = HTTPAdapter(max_retries=retry_strategy)
+         session.mount("http://", adapter)
+         session.mount("https://", adapter)
+ 
+-        # Set user agent
+-        session.headers.update(
+-            {
+-                "User-Agent": (
+-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+-                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 "
+-                    "(OEFO Data Collection Bot)"
+-                )
+-            }
+-        )
++        # Set user agent from centralized config
++        session.headers.update({"User-Agent": USER_AGENT})
+ 
+         return session
+ 
+diff --git a/setup.py b/setup.py
+index ceeafa0..0b1dcf2 100644
+--- a/setup.py
++++ b/setup.py
+@@ -8,7 +8,8 @@ from setuptools import setup, find_packages
+ from pathlib import Path
+ 
+ # Read version from __init__.py
+-init_file = Path(__file__).parent / 'oefo' / '__init__.py'
++# The package root IS this directory (not a nested oefo/ subdirectory)
++init_file = Path(__file__).parent / '__init__.py'
+ for line in init_file.read_text().split('\n'):
+     if line.startswith('__version__'):
+         version = line.split('=')[1].strip().strip('"\'')
+@@ -29,9 +30,18 @@ setup(
+     long_description=long_description,
+     long_description_content_type='text/markdown',
+     author='ET Finance',
+-    url='https://github.com/et-finance/oefo',
+-    packages=find_packages(),
+-    python_requires='>=3.8',
++    url='https://github.com/lcarato/oefo',
++    packages=find_packages(where='.'),
++    package_dir={'': '.'},
++    python_requires='>=3.10',
++    package_data={
++        'oefo': [
++            'dashboard/*.html',
++            'dashboard/*.json',
++            'config/*.json',
++            'config/*.md',
++        ],
++    },
+     install_requires=[
+         'pandas>=2.0',
+         'pydantic>=2.0',
+@@ -74,8 +84,6 @@ setup(
+         'Topic :: Scientific/Engineering :: Information Analysis',
+         'License :: OSI Approved :: MIT License',
+         'Programming Language :: Python :: 3',
+-        'Programming Language :: Python :: 3.8',
+-        'Programming Language :: Python :: 3.9',
+         'Programming Language :: Python :: 3.10',
+         'Programming Language :: Python :: 3.11',
+         'Programming Language :: Python :: 3.12',
+diff --git a/tests/__init__.py b/tests/__init__.py
+new file mode 100644
+index 0000000..202be75
+--- /dev/null
++++ b/tests/__init__.py
+@@ -0,0 +1 @@
++"""OEFO test suite."""
+diff --git a/tests/test_models.py b/tests/test_models.py
+new file mode 100644
+index 0000000..6ed0225
+--- /dev/null
++++ b/tests/test_models.py
+@@ -0,0 +1,99 @@
++"""Tests for OEFO data models."""
++
++import pytest
++from datetime import date, datetime
++
++from oefo.models import (
++    Observation,
++    ExtractionResult,
++    QCResult,
++    RawDocument,
++    ProvenanceChain,
++    SourceType,
++    ConfidenceLevel,
++    Scale,
++    ExtractionTier,
++    QCStatus,
++    TraceabilityLevel,
++)
++
++
++class TestObservation:
++    """Tests for the Observation model."""
++
++    def _make_observation(self, **overrides):
++        """Helper to create a valid Observation with defaults."""
++        defaults = {
++            "observation_id": "test-001",
++            "source_type": SourceType.DFI_DISCLOSURE,
++            "source_institution": "IFC",
++            "extraction_date": date(2024, 1, 1),
++            "extraction_method": "llm",
++            "confidence_level": ConfidenceLevel.HIGH,
++            "project_or_entity_name": "Test Solar Project",
++            "country": "BRA",
++            "technology_l2": "solar_pv",
++            "year_of_observation": 2024,
++        }
++        defaults.update(overrides)
++        return Observation(**defaults)
++
++    def test_valid_observation(self):
++        obs = self._make_observation()
++        assert obs.observation_id == "test-001"
++        assert obs.country == "BRA"
++
++    def test_kd_nominal_percentage_points(self):
++        """kd_nominal should accept percentage points (e.g. 5.5 for 5.5%)."""
++        obs = self._make_observation(kd_nominal=5.5)
++        assert obs.kd_nominal == 5.5
++
++    def test_kd_nominal_rejects_over_100(self):
++        with pytest.raises(Exception):
++            self._make_observation(kd_nominal=150)
++
++    def test_leverage_sum_validation(self):
++        """Leverage debt + equity should sum to ~100%."""
++        obs = self._make_observation(leverage_debt_pct=70, leverage_equity_pct=30)
++        assert obs.leverage_debt_pct == 70
++
++    def test_leverage_sum_fails_if_not_100(self):
++        with pytest.raises(Exception):
++            self._make_observation(leverage_debt_pct=80, leverage_equity_pct=80)
++
++    def test_country_code_validation(self):
++        with pytest.raises(Exception):
++            self._make_observation(country="brazil")
++
++    def test_traceability_full(self):
++        obs = self._make_observation(
++            source_document_url="https://example.com/doc.pdf",
++            source_page_number=5,
++            source_quote="WACC of 8.5%",
++        )
++        assert obs.traceability_level == TraceabilityLevel.FULL
++
++    def test_traceability_minimal(self):
++        obs = self._make_observation()
++        assert obs.traceability_level == TraceabilityLevel.MINIMAL
++
++
++class TestProvenanceChain:
++    """Tests for the ProvenanceChain model."""
++
++    def test_auto_traceability_full(self):
++        chain = ProvenanceChain(
++            source_document_id="doc-001",
++            source_document_url="https://example.com/doc.pdf",
++            source_page_numbers=[1, 2],
++            source_quotes=["WACC is 8.5%"],
++        )
++        assert chain.traceability_level == TraceabilityLevel.FULL
++
++    def test_auto_traceability_partial(self):
++        chain = ProvenanceChain(
++            source_document_id="doc-001",
++            source_document_url="https://example.com/doc.pdf",
++            source_page_numbers=[1],
++        )
++        assert chain.traceability_level == TraceabilityLevel.PARTIAL
+-- 
+2.34.1
+

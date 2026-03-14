@@ -52,15 +52,3 @@ data/cache/
 # Temporary files
 ~$*
 *.tmp
-# OEFO remediation additions
-.venv/
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-dist/
-build/
-*.egg-info/
-logs/
-data/raw/
-data/extracted/
-data/final/
