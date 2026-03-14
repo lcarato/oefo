@@ -90,10 +90,24 @@ Return ONLY valid JSON in this exact structure:
           "source_quote": "<exact quote>"
         }
       },
+      "concessional_finance": {
+        "is_concessional": {
+          "value": "<true | false | null>",
+          "source_quote": "<exact quote indicating concessional terms, or null>"
+        },
+        "concessional_element_description": {
+          "value": "<description of concessional elements or null>",
+          "source_quote": "<exact quote>"
+        }
+      },
       "project_info": {
         "project_name": "<name or null>",
-        "country": "<country code or null>",
-        "technology": "<technology type or null>"
+        "country": "<ISO 3166-1 alpha-3 code or null>",
+        "technology": "<technology type or null>",
+        "scale": "<utility_scale | commercial_industrial | distributed_residential | portfolio | mega_project | regulated_asset | pilot_demonstration | null>",
+        "project_status": "<operating | construction | financial_close | development | decommissioning | null>",
+        "value_chain_position": "<generation | fuel_production | fuel_transport | fuel_storage | electricity_transmission | electricity_distribution | electricity_storage | end_use_efficiency | end_use_transport | carbon_management | null>",
+        "debt_type": "<senior | subordinated | mezzanine | bond | concessional | bank_loan | convertible | credit_line | equipment_financing | supplier_credit | null>"
       },
       "confidence_score": <float between 0.0 and 1.0>,
       "notes": "<any clarifications, currency conversions, or special conditions>"
@@ -109,12 +123,22 @@ EXTRACTION RULES:
 5. Confidence score: 1.0 for explicit statements, 0.5 for implied, 0.0 for not found.
 6. Note any special terms (covenants, guarantees, subordination, prepayment options).
 
+CONCESSIONAL FINANCE DETECTION:
+- Flag as concessional (is_concessional = true) if ANY of:
+  * Below-market interest rates (significantly below sovereign yield for the country)
+  * Grace periods on principal repayment
+  * IDA terms, soft loan indicators, or blended finance structures
+  * Explicit mention of concessional, subsidized, or below-market financing
+  * DFI co-financing with explicit subsidy element
+- Describe the concessional element in concessional_element_description
+
 PRIORITY ITEMS TO EXTRACT:
 - Loan amount and tenor (fundamental terms)
 - Interest rate and benchmark (cost of debt components)
 - Leverage/capital structure (financing composition)
 - Cost of debt and WACC (if disclosed)
 - Grace period and other special terms
+- Concessional finance indicators (below-market rates, grace periods, IDA terms)
 
 MANDATORY TRACEABILITY REQUIREMENTS:
 For EVERY extracted value you MUST provide:

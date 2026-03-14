@@ -23,6 +23,7 @@ from oefo.models import (
     Scale,
     ValueChainPosition,
     ProjectStatus,
+    SourceType,
     TraceabilityLevel,
 )
 from oefo.config import thresholds
@@ -86,6 +87,7 @@ class RuleBasedQC:
         # Run all check methods
         flags.extend(self.check_range_plausibility(observation))
         flags.extend(self.check_internal_consistency(observation))
+        flags.extend(self.check_concessional(observation))
         flags.extend(self.check_format_and_types(observation))
         flags.extend(self.check_traceability_completeness(observation))
 
@@ -530,6 +532,45 @@ class RuleBasedQC:
                     f"similar financial parameters"
                 )
 
+        return flags
+
+    # Approximate sovereign yields by country (for concessional detection)
+    # Source: Bloomberg/FRED approximate 10Y government bond yields as of 2025
+    _RISK_FREE_RATES: Dict[str, float] = {
+        'USA': 4.3, 'GBR': 4.5, 'DEU': 2.5, 'FRA': 3.0, 'JPN': 1.0,
+        'AUS': 4.3, 'CAN': 3.5, 'BRA': 12.0, 'IND': 7.2, 'ZAF': 10.5,
+        'MEX': 9.5, 'COL': 10.0, 'PER': 6.5, 'CHL': 5.5, 'IDN': 7.0,
+        'PHL': 6.5, 'VNM': 5.0, 'KEN': 14.0, 'NGA': 15.0, 'EGY': 25.0,
+        'CHN': 2.3, 'KOR': 3.5, 'THA': 2.8, 'MYS': 3.8, 'SGP': 3.0,
+    }
+
+    def _get_risk_free_rate(self, country: str) -> Optional[float]:
+        """Get approximate risk-free rate for a country."""
+        return self._RISK_FREE_RATES.get(country)
+
+    def check_concessional(self, obs: Observation) -> List[str]:
+        """
+        Check if debt appears to be concessional (below-market rates from DFIs).
+
+        If kd_nominal is below the sovereign yield for the country AND the source
+        is a DFI disclosure, flag as likely concessional.
+
+        Args:
+            obs: Observation to check
+
+        Returns:
+            List of INFO flags suggesting concessional finance detection
+        """
+        flags = []
+        if obs.kd_nominal is not None and obs.source_type == SourceType.DFI_DISCLOSURE:
+            rfr = self._get_risk_free_rate(obs.country)
+            if rfr is not None and obs.kd_nominal < rfr:
+                flags.append(
+                    f"INFO: Concessional finance likely. "
+                    f"kd_nominal={obs.kd_nominal:.2f}% is below risk-free rate "
+                    f"~{rfr:.2f}% for {obs.country}. "
+                    f"Consider setting is_concessional=True."
+                )
         return flags
 
     def _compute_score_from_flags(self, num_flags: int) -> float:

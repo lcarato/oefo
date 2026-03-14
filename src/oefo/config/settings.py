@@ -13,6 +13,7 @@ Sensitive credentials should be stored in a .env file (git-ignored).
 """
 
 import os
+from datetime import date
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -255,6 +256,16 @@ DRY_RUN: bool = os.environ.get("OEFO_DRY_RUN", "false").lower() == "true"
 If True, simulate operations without writing to disk or calling external APIs.
 Useful for testing pipelines.
 """
+
+# =============================================================================
+# Damodaran Benchmark Settings
+# =============================================================================
+
+DAMODARAN_DATA_AS_OF: date = date(2025, 1, 1)
+"""Date as of which the Damodaran benchmark data was last refreshed."""
+
+DAMODARAN_OUTLIER_THRESHOLD_SD: float = 2.0
+"""Flag observations >2 standard deviations from Damodaran sector benchmark."""
 
 # =============================================================================
 # Helper Functions
