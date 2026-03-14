@@ -20,85 +20,26 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+# Import canonical enum definitions from taxonomy (single source of truth)
+from oefo.config.taxonomy import (
+    Scale,
+    DebtType,
+    ProjectStatus,
+    ExtractionTier,
+    ValueChainPosition,
+    SourceType,
+    ConfidenceLevel,
+    QCStatus,
+    ExtractionMethod,
+    KEEstimationMethod,
+    KDRateBenchmark,
+    LeverageBasis,
+)
+
 
 # ============================================================================
-# Enum Classes for Controlled Vocabularies
+# Enum Classes (models-only — not in taxonomy.py)
 # ============================================================================
-
-class SourceType(str, Enum):
-    """Valid source types for observations."""
-    DFI_DISCLOSURE = "DFI_disclosure"
-    CORPORATE_FILING = "corporate_filing"
-    BOND_PROSPECTUS = "bond_prospectus"
-    REGULATORY_FILING = "regulatory_filing"
-
-
-class ConfidenceLevel(str, Enum):
-    """Confidence levels for extracted data."""
-    HIGH = "high"
-    MEDIUM = "medium"
-    LOW = "low"
-
-
-class ProjectStatus(str, Enum):
-    """Project development status."""
-    DEVELOPMENT = "development"
-    OPERATIONAL = "operational"
-    RETIRED = "retired"
-    CONSTRUCTION = "construction"
-    PLANNED = "planned"
-
-
-class Scale(str, Enum):
-    """Project scale categories."""
-    UTILITY = "utility"
-    COMMERCIAL = "commercial"
-    INDUSTRIAL = "industrial"
-    RESIDENTIAL = "residential"
-    COMMUNITY = "community"
-    MICRO = "micro"
-    DISTRIBUTED = "distributed"
-
-
-class ValueChainPosition(str, Enum):
-    """Position in the energy value chain."""
-    GENERATION = "generation"
-    TRANSMISSION = "transmission"
-    DISTRIBUTION = "distribution"
-    STORAGE = "storage"
-    DEMAND_SIDE = "demand_side"
-    INTEGRATION = "integration"
-    MANUFACTURING = "manufacturing"
-    INSTALLATION = "installation"
-    OPERATION_MAINTENANCE = "operation_maintenance"
-    DECOMMISSIONING = "decommissioning"
-
-
-class DebtType(str, Enum):
-    """Types of debt financing."""
-    BANK_LOAN = "bank_loan"
-    BOND = "bond"
-    CONVERTIBLE = "convertible"
-    CREDIT_LINE = "credit_line"
-    EQUIPMENT_FINANCING = "equipment_financing"
-    MEZZANINE = "mezzanine"
-    SUPPLIER_CREDIT = "supplier_credit"
-
-
-class ExtractionTier(str, Enum):
-    """Data extraction tier/quality classification."""
-    TIER_1 = "tier_1"  # High quality, direct extraction
-    TIER_2 = "tier_2"  # Moderate quality, some inference
-    TIER_3 = "tier_3"  # Lower quality, significant inference
-
-
-class QCStatus(str, Enum):
-    """Quality control review status."""
-    PASSED = "passed"
-    FAILED = "failed"
-    FLAGGED = "flagged"
-    PENDING_REVIEW = "pending_review"
-
 
 class DocumentStatus(str, Enum):
     """Status of scraped/downloaded documents."""
@@ -372,6 +313,30 @@ class Observation(BaseModel):
         description="Credit rating of the debt (e.g., 'AAA', 'BB-', 'not_rated')"
     )
 
+    # -- Concessional finance
+    is_concessional: Optional[bool] = Field(
+        None,
+        description="Whether the debt includes concessional elements (below-market rates, longer tenors, grace periods from DFIs)"
+    )
+    concessional_element_description: Optional[str] = Field(
+        None,
+        description="Description of the concessional element if is_concessional is True"
+    )
+
+    # -- FX conversion
+    debt_amount_original_currency: Optional[float] = Field(
+        None, ge=0,
+        description="Debt amount in original currency (millions)"
+    )
+    fx_rate_to_usd: Optional[float] = Field(
+        None, gt=0,
+        description="Exchange rate to USD at source_document_date (units of local currency per 1 USD)"
+    )
+    fx_rate_date: Optional[date] = Field(
+        None,
+        description="Date of the FX rate used for conversion"
+    )
+
     # Equity Parameters
     ke_nominal: Optional[float] = Field(
         None,
@@ -405,7 +370,7 @@ class Observation(BaseModel):
     )
     leverage_basis: Optional[str] = Field(
         None,
-        description="Basis for leverage calculation (e.g., 'book_value', 'market_value')"
+        description="Basis for leverage calculation: 'project_level' or 'corporate_level'"
     )
 
     # WACC (Weighted Average Cost of Capital)
@@ -426,6 +391,18 @@ class Observation(BaseModel):
         ge=0,
         le=1,
         description="Tax rate used in WACC calculation"
+    )
+
+    # -- Concessional-adjusted WACC
+    wacc_nominal_market_equivalent: Optional[float] = Field(
+        None,
+        ge=0, le=50,
+        description="WACC computed using estimated market-equivalent debt rate instead of actual concessional rate (%)"
+    )
+    wacc_real_market_equivalent: Optional[float] = Field(
+        None,
+        ge=0, le=50,
+        description="Real WACC computed using estimated market-equivalent debt rate (%)"
     )
 
     # Quality Control & Provenance

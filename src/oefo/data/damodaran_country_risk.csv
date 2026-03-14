@@ -1,0 +1,16 @@
+country_iso3,country_name,moodys_rating,country_risk_premium_pct,equity_risk_premium_pct,source_year
+USA,United States,Aaa,0.00,4.33,2025
+GBR,United Kingdom,Aa3,0.80,5.13,2025
+BRA,Brazil,Ba1,3.34,7.67,2025
+IND,India,Baa3,2.93,7.26,2025
+ZAF,South Africa,Ba2,4.02,8.35,2025
+AUS,Australia,Aaa,0.00,4.33,2025
+MEX,Mexico,Baa2,2.54,6.87,2025
+COL,Colombia,Baa2,2.54,6.87,2025
+PER,Peru,Baa1,2.13,6.46,2025
+CHL,Chile,A2,1.13,5.46,2025
+PHL,Philippines,Baa2,2.54,6.87,2025
+IDN,Indonesia,Baa2,2.54,6.87,2025
+KEN,Kenya,Caa1,10.01,14.34,2025
+VNM,Vietnam,Ba2,4.02,8.35,2025
+NGA,Nigeria,Caa1,10.01,14.34,2025

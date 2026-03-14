@@ -30,6 +30,24 @@ from .base import BaseScraper
 
 logger = logging.getLogger(__name__)
 
+# Key XBRL concepts for energy finance extraction
+XBRL_FINANCIAL_CONCEPTS = {
+    # Debt parameters
+    "us-gaap:LongTermDebt": "debt_amount",
+    "us-gaap:LongTermDebtWeightedAverageInterestRate": "kd_nominal",
+    "us-gaap:DebtInstrumentInterestRateStatedPercentage": "kd_nominal",
+    "us-gaap:DebtInstrumentTerm": "debt_tenor_years",
+    "us-gaap:InterestExpense": "interest_expense",
+
+    # Capital structure
+    "us-gaap:LongTermDebtAndCapitalLeaseObligations": "total_debt",
+    "us-gaap:StockholdersEquity": "total_equity",
+    "us-gaap:DebtToEquityRatio": "debt_to_equity",
+
+    # Credit
+    "dei:EntityCreditRating": "credit_rating",
+}
+
 
 class SECEdgarScraper(BaseScraper):
     """
@@ -291,6 +309,137 @@ class SECEdgarScraper(BaseScraper):
         except Exception as e:
             logger.error(f"XBRL data fetch failed: {e}")
             return {}
+
+    def get_xbrl_financial_data(self, cik: str) -> dict:
+        """
+        Extract structured financial data from SEC XBRL companyfacts API.
+
+        Uses the SEC XBRL API (data.sec.gov/api/xbrl/companyfacts/) to retrieve
+        company facts, then extracts the relevant financial concepts defined in
+        XBRL_FINANCIAL_CONCEPTS and maps them to OEFO Observation fields.
+
+        Args:
+            cik: 10-digit company CIK (zero-padded)
+
+        Returns:
+            Dictionary mapping OEFO field names to extracted values with metadata:
+            {
+                "company_name": str,
+                "cik": str,
+                "fields": {
+                    "field_name": {
+                        "value": float,
+                        "unit": str,
+                        "fiscal_year": int,
+                        "filing_date": str,
+                        "xbrl_concept": str
+                    },
+                    ...
+                }
+            }
+        """
+        logger.info(f"Fetching XBRL financial data for CIK {cik}...")
+
+        result = {
+            "cik": cik,
+            "company_name": None,
+            "fields": {},
+        }
+
+        try:
+            # SEC XBRL companyfacts API
+            companyfacts_url = (
+                f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
+            )
+
+            response = requests.get(
+                companyfacts_url,
+                headers={"User-Agent": self.user_agent},
+                timeout=30,
+            )
+            response.raise_for_status()
+
+            data = response.json()
+            result["company_name"] = data.get("entityName")
+
+            # Iterate through XBRL concepts we care about
+            facts = data.get("facts", {})
+
+            for xbrl_concept, oefo_field in XBRL_FINANCIAL_CONCEPTS.items():
+                # Split namespace and concept name
+                namespace, concept = xbrl_concept.split(":", 1)
+
+                # Map namespace to XBRL taxonomy prefix
+                ns_map = {
+                    "us-gaap": "us-gaap",
+                    "dei": "dei",
+                }
+                ns_key = ns_map.get(namespace, namespace)
+
+                # Look up the concept in the facts
+                ns_facts = facts.get(ns_key, {})
+                concept_data = ns_facts.get(concept)
+
+                if concept_data is None:
+                    continue
+
+                # Extract the most recent value from available units
+                units = concept_data.get("units", {})
+
+                # Try USD first, then pure numbers
+                for unit_key in ["USD", "pure", "shares"]:
+                    if unit_key not in units:
+                        continue
+
+                    entries = units[unit_key]
+                    if not entries:
+                        continue
+
+                    # Get the most recent 10-K filing entry
+                    annual_entries = [
+                        e for e in entries
+                        if e.get("form") == "10-K"
+                    ]
+
+                    if not annual_entries:
+                        annual_entries = entries
+
+                    # Sort by end date to get most recent
+                    annual_entries.sort(
+                        key=lambda e: e.get("end", ""),
+                        reverse=True,
+                    )
+
+                    latest = annual_entries[0]
+
+                    # Only store if we don't already have this field,
+                    # or if this entry is more recent
+                    if oefo_field not in result["fields"]:
+                        result["fields"][oefo_field] = {
+                            "value": latest.get("val"),
+                            "unit": unit_key,
+                            "fiscal_year": latest.get("fy"),
+                            "filing_date": latest.get("filed"),
+                            "period_end": latest.get("end"),
+                            "xbrl_concept": xbrl_concept,
+                        }
+                    break  # Found a unit with data, move to next concept
+
+            logger.info(
+                f"  Extracted {len(result['fields'])} financial fields "
+                f"for {result['company_name'] or cik}"
+            )
+            return result
+
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                logger.warning(f"No XBRL data available for CIK {cik}")
+            else:
+                logger.error(f"XBRL financial data fetch failed: {e}")
+            return result
+        except Exception as e:
+            logger.error(f"XBRL financial data fetch failed: {e}")
+            return result
 
     def download_filing(self, url: str) -> Optional:
         """

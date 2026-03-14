@@ -2,8 +2,8 @@
 Controlled Vocabularies for the OEFO (Open Energy Finance Observatory) Project
 
 This module defines all enumerated types and controlled vocabularies used across
-the OEFO data pipeline. All enums use string values for proper JSON serialization
-and downstream compatibility.
+the OEFO data pipeline. All enums use (str, Enum) for proper JSON serialization,
+Pydantic v2 compatibility, and downstream use.
 
 Categories include:
 - Technology classifications (L2 granularity)
@@ -16,7 +16,7 @@ Categories include:
 from enum import Enum
 
 
-class Technology(Enum):
+class Technology(str, Enum):
     """
     Technology L2 classification (~55 categories).
     Covers generation, fuel cycle, storage, demand-side, transmission/distribution,
@@ -114,21 +114,22 @@ class Technology(Enum):
     DISTRICT_ENERGY = "district_energy"
 
 
-class Scale(Enum):
+class Scale(str, Enum):
     """Project or asset scale classification.
 
-    Values aligned with models.py Scale enum for consistency.
+    Values reflect financing-structure differences, not just physical size.
+    Aligned with project strategy spec.
     """
-    UTILITY = "utility"
-    COMMERCIAL = "commercial"
-    INDUSTRIAL = "industrial"
-    RESIDENTIAL = "residential"
-    COMMUNITY = "community"
-    MICRO = "micro"
-    DISTRIBUTED = "distributed"
+    UTILITY_SCALE = "utility_scale"
+    COMMERCIAL_INDUSTRIAL = "commercial_industrial"
+    DISTRIBUTED_RESIDENTIAL = "distributed_residential"
+    PORTFOLIO = "portfolio"
+    MEGA_PROJECT = "mega_project"
+    REGULATED_ASSET = "regulated_asset"
+    PILOT_DEMONSTRATION = "pilot_demonstration"
 
 
-class ValueChainPosition(Enum):
+class ValueChainPosition(str, Enum):
     """Position in the energy value chain."""
     GENERATION = "generation"
     FUEL_PRODUCTION = "fuel_production"
@@ -142,7 +143,7 @@ class ValueChainPosition(Enum):
     CARBON_MANAGEMENT = "carbon_management"
 
 
-class ProjectStatus(Enum):
+class ProjectStatus(str, Enum):
     """Project development and operational status."""
     OPERATING = "operating"
     CONSTRUCTION = "construction"
@@ -151,7 +152,7 @@ class ProjectStatus(Enum):
     DECOMMISSIONING = "decommissioning"
 
 
-class SourceType(Enum):
+class SourceType(str, Enum):
     """Classification of data source document type."""
     DFI_DISCLOSURE = "DFI_disclosure"
     CORPORATE_FILING = "corporate_filing"
@@ -159,7 +160,7 @@ class SourceType(Enum):
     REGULATORY_FILING = "regulatory_filing"
 
 
-class ExtractionMethod(Enum):
+class ExtractionMethod(str, Enum):
     """Method used to extract data from source document."""
     MANUAL = "manual"
     AUTOMATED_HTML = "automated_html"
@@ -167,49 +168,48 @@ class ExtractionMethod(Enum):
     LLM_ASSISTED = "llm_assisted"
 
 
-class ExtractionTier(Enum):
-    """Processing tier used for extraction (increasing complexity/cost).
-
-    Values aligned with models.py ExtractionTier enum.
-    """
-    TIER_1 = "tier_1"  # High quality, direct text extraction
-    TIER_2 = "tier_2"  # Moderate quality, OCR-based
-    TIER_3 = "tier_3"  # Lower quality, vision-based inference
+class ExtractionTier(str, Enum):
+    """Processing tier used for extraction (increasing complexity/cost)."""
+    TIER_1 = "tier_1"  # Native text extraction (pdfplumber/pymupdf)
+    TIER_2 = "tier_2"  # OCR (Tesseract)
+    TIER_3 = "tier_3"  # Vision (Claude Vision API)
+    TIER_4 = "tier_4"  # Human-in-the-loop (manual extraction)
 
 
-class QCStatus(Enum):
-    """Quality control review status of extracted data.
-
-    Values aligned with models.py QCStatus enum.
-    """
+class QCStatus(str, Enum):
+    """Quality control review status of extracted data."""
     PASSED = "passed"
     FAILED = "failed"
     FLAGGED = "flagged"
     PENDING_REVIEW = "pending_review"
 
 
-class ConfidenceLevel(Enum):
+class ConfidenceLevel(str, Enum):
     """Confidence in the accuracy/specificity of a data point."""
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
 
 
-class DebtType(Enum):
-    """Classification of debt instrument by type.
+class DebtType(str, Enum):
+    """Classification of debt instrument by seniority and type.
 
-    Values aligned with models.py DebtType enum.
+    Includes seniority-based categories (senior, subordinated, concessional)
+    alongside instrument-type categories per project strategy spec.
     """
-    BANK_LOAN = "bank_loan"
+    SENIOR = "senior"
+    SUBORDINATED = "subordinated"
+    MEZZANINE = "mezzanine"
     BOND = "bond"
+    CONCESSIONAL = "concessional"
+    BANK_LOAN = "bank_loan"
     CONVERTIBLE = "convertible"
     CREDIT_LINE = "credit_line"
     EQUIPMENT_FINANCING = "equipment_financing"
-    MEZZANINE = "mezzanine"
     SUPPLIER_CREDIT = "supplier_credit"
 
 
-class KDRateBenchmark(Enum):
+class KDRateBenchmark(str, Enum):
     """Benchmark rate for floating-rate debt."""
     SOFR = "SOFR"
     EURIBOR = "EURIBOR"
@@ -218,7 +218,7 @@ class KDRateBenchmark(Enum):
     LOCAL_REFERENCE_RATE = "local_reference_rate"
 
 
-class KEEstimationMethod(Enum):
+class KEEstimationMethod(str, Enum):
     """Method by which cost of equity (Ke) was determined or derived."""
     REGULATORY_ALLOWED = "regulatory_allowed"
     CAPM_DERIVED = "capm_derived"
@@ -226,7 +226,7 @@ class KEEstimationMethod(Enum):
     IMPLIED = "implied"
 
 
-class LeverageBasis(Enum):
+class LeverageBasis(str, Enum):
     """Level at which leverage is measured/calculated."""
     PROJECT_LEVEL = "project_level"
     CORPORATE_LEVEL = "corporate_level"
@@ -274,3 +274,86 @@ def validate_scale(value: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+# =============================================================================
+# Damodaran Technology Map
+# =============================================================================
+
+# Maps OEFO technology_l2 values to Damodaran sector names
+# Used by QC benchmarks layer for cross-checking extracted values
+DAMODARAN_TECHNOLOGY_MAP: dict[str, str] = {
+    # Solar
+    "solar_pv": "Green & Renewable Energy",
+    "solar_csp": "Green & Renewable Energy",
+    "solar_thermal": "Green & Renewable Energy",
+    # Wind
+    "wind_onshore": "Green & Renewable Energy",
+    "wind_offshore_fixed": "Green & Renewable Energy",
+    "wind_offshore_floating": "Green & Renewable Energy",
+    "wind_distributed": "Green & Renewable Energy",
+    # Hydro
+    "hydro_large": "Power",
+    "hydro_small": "Green & Renewable Energy",
+    "hydro_run_of_river": "Green & Renewable Energy",
+    # Bioenergy
+    "biomass_power": "Green & Renewable Energy",
+    "biogas": "Green & Renewable Energy",
+    "biomethane": "Green & Renewable Energy",
+    "waste_to_energy": "Green & Renewable Energy",
+    "biofuels": "Green & Renewable Energy",
+    # Geothermal
+    "geothermal_power": "Green & Renewable Energy",
+    "geothermal_direct_use": "Green & Renewable Energy",
+    # Ocean
+    "tidal": "Green & Renewable Energy",
+    "wave": "Green & Renewable Energy",
+    # Gas
+    "gas_ccgt": "Oil/Gas (Production)",
+    "gas_peaker": "Oil/Gas (Production)",
+    "gas_cogeneration": "Oil/Gas (Production)",
+    "lng_liquefaction": "Oil/Gas (Production)",
+    "lng_regasification": "Oil/Gas (Distribution)",
+    "gas_distribution": "Oil/Gas (Distribution)",
+    "gas_midstream": "Oil/Gas (Distribution)",
+    # Oil
+    "oil_upstream_conventional": "Oil/Gas (Production)",
+    "oil_upstream_unconventional": "Oil/Gas (Production)",
+    "oil_midstream": "Oil/Gas (Distribution)",
+    "oil_downstream": "Oil/Gas (Distribution)",
+    # Coal
+    "coal_power": "Coal & Related Energy",
+    "coal_mining": "Coal & Related Energy",
+    # Nuclear
+    "nuclear_large": "Nuclear",
+    "nuclear_smr": "Nuclear",
+    "nuclear_fuel_cycle": "Nuclear",
+    # Storage
+    "storage_battery_grid": "Green & Renewable Energy",
+    "storage_battery_btm": "Green & Renewable Energy",
+    "storage_pumped_hydro": "Power",
+    "storage_caes": "Green & Renewable Energy",
+    "storage_thermal": "Green & Renewable Energy",
+    "storage_mechanical": "Green & Renewable Energy",
+    # Hydrogen
+    "hydrogen_green": "Green & Renewable Energy",
+    "hydrogen_blue": "Oil/Gas (Production)",
+    "hydrogen_pink": "Nuclear",
+    "hydrogen_infrastructure": "Oil/Gas (Distribution)",
+    "ammonia_green": "Green & Renewable Energy",
+    "e_fuels": "Green & Renewable Energy",
+    # CCS
+    "ccs_power": "Power",
+    "ccs_industrial": "Oil/Gas (Production)",
+    "ccs_dac": "Green & Renewable Energy",
+    "co2_transport_storage": "Oil/Gas (Distribution)",
+    # Grid
+    "transmission": "Electric Utility (General)",
+    "distribution": "Electric Utility (General)",
+    "ev_charging": "Green & Renewable Energy",
+    "microgrids": "Electric Utility (General)",
+    # Efficiency
+    "efficiency_industrial": "Power",
+    "efficiency_buildings": "Power",
+    "district_energy": "Electric Utility (General)",
+}

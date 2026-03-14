@@ -90,9 +90,16 @@ Return ONLY valid JSON in this exact structure:
           "source_quote": "<exact quote>"
         },
         "seniority": {
-          "value": "<Senior | Subordinated | Other>",
+          "value": "<senior | subordinated | mezzanine | null>",
           "source_quote": "<exact quote>"
-        }
+        },
+        "debt_type": "<senior | subordinated | mezzanine | bond | concessional | bank_loan | convertible | credit_line | equipment_financing | supplier_credit | null>"
+      },
+      "issuer_info": {
+        "country": "<ISO 3166-1 alpha-3 code or null>",
+        "scale": "<utility_scale | commercial_industrial | distributed_residential | portfolio | mega_project | regulated_asset | pilot_demonstration | null>",
+        "project_status": "<operating | construction | financial_close | development | decommissioning | null>",
+        "value_chain_position": "<generation | fuel_production | fuel_transport | fuel_storage | electricity_transmission | electricity_distribution | electricity_storage | end_use_efficiency | end_use_transport | carbon_management | null>"
       },
       "use_of_proceeds": {
         "primary_purpose": {

@@ -1,0 +1,8 @@
+sector,beta_unlevered,beta_levered,cost_of_equity_pct,cost_of_debt_pct,debt_to_equity_ratio,debt_to_capital_pct,effective_tax_rate_pct,source_year
+Green & Renewable Energy,0.40,0.86,7.77,6.02,1.13,53.08,0.00,2025
+Oil/Gas (Production),0.53,0.72,7.17,5.07,0.38,27.32,6.66,2025
+Oil/Gas (Distribution),0.42,0.67,6.93,5.07,0.59,36.92,9.17,2025
+Electric Utility (General),0.13,0.24,5.02,4.73,0.81,44.90,12.77,2025
+Power,0.28,0.48,6.10,4.73,0.74,42.58,12.75,2025
+Coal & Related Energy,1.00,1.07,8.73,5.29,0.07,6.67,3.13,2025
+Utility (Water),0.25,0.41,5.79,4.73,0.62,38.41,11.19,2025

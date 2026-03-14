@@ -19,6 +19,8 @@ import numpy as np
 
 from oefo.models import Observation, QCResult, QCStatus
 from oefo.config import thresholds
+from oefo.config.taxonomy import DAMODARAN_TECHNOLOGY_MAP
+from oefo.config.settings import DAMODARAN_OUTLIER_THRESHOLD_SD
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,7 @@ class StatisticalQC:
         self.benchmark_data = benchmark_data
         if self.benchmark_data is None:
             self.benchmark_data = self.load_damodaran_benchmarks()
+        self.country_risk_data = self.load_country_risk_premiums()
 
     def check(
         self,
@@ -110,10 +113,11 @@ class StatisticalQC:
 
     def check_damodaran_benchmark(self, obs: Observation) -> List[str]:
         """
-        Compare cost of debt against Damodaran cost of debt benchmarks.
+        Compare extracted values against Damodaran sector benchmarks.
 
-        Flags cases where observed Kd differs >2 std deviations from expected
-        for the country/credit rating combination.
+        Uses DAMODARAN_TECHNOLOGY_MAP to map obs.technology_l2 to a Damodaran
+        sector, then compares kd, ke, and leverage against sector benchmarks.
+        Flags outliers but does not reject — these are cross-checks.
 
         Args:
             obs: Observation to check
@@ -123,49 +127,67 @@ class StatisticalQC:
         """
         flags = []
 
-        # Skip if no kd_nominal or required metadata missing
-        if obs.kd_nominal is None or obs.country is None:
+        if self.benchmark_data is None or self.benchmark_data.empty:
+            self.logger.debug("No Damodaran benchmark data available")
             return flags
 
-        if self.benchmark_data is None or self.benchmark_data.empty:
-            self.logger.warning("No benchmark data available for Damodaran check")
+        # Map technology to Damodaran sector
+        sector = DAMODARAN_TECHNOLOGY_MAP.get(obs.technology_l2)
+        if sector is None:
             return flags
 
         try:
-            # Filter benchmark data for this country and credit rating
-            country_benchmarks = self.benchmark_data[
-                self.benchmark_data['country'] == obs.country
+            sector_row = self.benchmark_data[
+                self.benchmark_data['sector'] == sector
             ]
-
-            if country_benchmarks.empty:
-                self.logger.debug(f"No benchmark data for country {obs.country}")
+            if sector_row.empty:
                 return flags
 
-            # Filter by credit rating if provided
-            if obs.credit_rating and obs.credit_rating != 'not_rated':
-                rating_benchmarks = country_benchmarks[
-                    country_benchmarks['credit_rating'] == obs.credit_rating
+            row = sector_row.iloc[0]
+            threshold = DAMODARAN_OUTLIER_THRESHOLD_SD
+
+            # Adjust for country risk premium if available
+            crp = 0.0
+            if (self.country_risk_data is not None and
+                    not self.country_risk_data.empty and obs.country):
+                crp_row = self.country_risk_data[
+                    self.country_risk_data['country_iso3'] == obs.country
                 ]
-                if not rating_benchmarks.empty:
-                    country_benchmarks = rating_benchmarks
+                if not crp_row.empty:
+                    crp = crp_row.iloc[0]['country_risk_premium_pct']
 
-            # Calculate mean and std dev of benchmark Kd
-            benchmark_kds = country_benchmarks['kd_nominal'].dropna()
-            if len(benchmark_kds) < 2:
-                return flags
-
-            mean_kd = benchmark_kds.mean()
-            std_kd = benchmark_kds.std()
-
-            # Flag if observed Kd is >2 std devs from mean
-            if std_kd > 0:
-                z_score = abs(obs.kd_nominal - mean_kd) / std_kd
-                if z_score > thresholds.OUTLIER_STD_DEVIATIONS:
+            # Compare kd_nominal against sector cost of debt
+            if obs.kd_nominal is not None and pd.notna(row.get('cost_of_debt_pct')):
+                bench_kd = row['cost_of_debt_pct'] + crp
+                diff = abs(obs.kd_nominal - bench_kd)
+                # Use ±3% as approximate 2 SD band for cost of debt
+                if diff > 3.0 * threshold:
                     flags.append(
-                        f"WARNING: Damodaran benchmark check. "
-                        f"Observed kd_nominal={obs.kd_nominal:.2f}% is {z_score:.1f} std devs "
-                        f"from benchmark mean={mean_kd:.2f}% (std={std_kd:.2f}%) "
-                        f"for {obs.country} {obs.credit_rating or 'unrated'}"
+                        f"WARNING: Damodaran benchmark. "
+                        f"kd_nominal={obs.kd_nominal:.2f}% vs sector '{sector}' "
+                        f"benchmark={bench_kd:.2f}% (diff={diff:.2f}%, CRP={crp:.2f}%)"
+                    )
+
+            # Compare ke_nominal against sector cost of equity + CRP
+            if obs.ke_nominal is not None and pd.notna(row.get('cost_of_equity_pct')):
+                bench_ke = row['cost_of_equity_pct'] + crp
+                diff = abs(obs.ke_nominal - bench_ke)
+                if diff > 4.0 * threshold:
+                    flags.append(
+                        f"WARNING: Damodaran benchmark. "
+                        f"ke_nominal={obs.ke_nominal:.2f}% vs sector '{sector}' "
+                        f"benchmark={bench_ke:.2f}% (diff={diff:.2f}%, CRP={crp:.2f}%)"
+                    )
+
+            # Compare leverage against sector debt-to-capital
+            if obs.leverage_debt_pct is not None and pd.notna(row.get('debt_to_capital_pct')):
+                bench_lev = row['debt_to_capital_pct']
+                diff = abs(obs.leverage_debt_pct - bench_lev)
+                if diff > 20.0 * threshold:
+                    flags.append(
+                        f"WARNING: Damodaran benchmark. "
+                        f"leverage_debt_pct={obs.leverage_debt_pct:.1f}% vs sector '{sector}' "
+                        f"benchmark={bench_lev:.1f}% (diff={diff:.1f}%)"
                     )
 
         except Exception as e:
@@ -317,25 +339,22 @@ class StatisticalQC:
         return flags
 
     def load_damodaran_benchmarks(self) -> pd.DataFrame:
-        """
-        Load Damodaran cost of debt benchmarks.
+        """Load Damodaran sector benchmarks from static CSV."""
+        from pathlib import Path
+        benchmarks_path = Path(__file__).parent.parent / "data" / "damodaran_benchmarks.csv"
+        if not benchmarks_path.exists():
+            self.logger.warning(f"Damodaran benchmarks file not found at {benchmarks_path}")
+            return pd.DataFrame()
+        return pd.read_csv(benchmarks_path)
 
-        This is a placeholder that would normally load from:
-        - CSV file cached locally
-        - Direct Damodaran website scrape
-        - Database
-
-        Returns:
-            DataFrame with columns: country, credit_rating, kd_nominal, year
-        """
-        # TODO: Implement actual loading from config or cache
-        self.logger.warning(
-            "Damodaran benchmarks not yet implemented. "
-            "Benchmark checks will be skipped."
-        )
-
-        # Return empty DataFrame for now
-        return pd.DataFrame(columns=['country', 'credit_rating', 'kd_nominal', 'year'])
+    def load_country_risk_premiums(self) -> pd.DataFrame:
+        """Load Damodaran country risk premiums from static CSV."""
+        from pathlib import Path
+        crp_path = Path(__file__).parent.parent / "data" / "damodaran_country_risk.csv"
+        if not crp_path.exists():
+            self.logger.warning(f"Country risk premium file not found at {crp_path}")
+            return pd.DataFrame()
+        return pd.read_csv(crp_path)
 
     def _compute_score_from_flags(self, num_flags: int) -> float:
         """

@@ -102,8 +102,12 @@ Return ONLY valid JSON in this exact structure:
       },
       "company_info": {
         "company_name": "<name or null>",
-        "country": "<country code or null>",
-        "fiscal_year": "<year or null>"
+        "country": "<ISO 3166-1 alpha-3 code or null>",
+        "fiscal_year": "<year or null>",
+        "scale": "<utility_scale | commercial_industrial | distributed_residential | portfolio | mega_project | regulated_asset | pilot_demonstration | null>",
+        "project_status": "<operating | construction | financial_close | development | decommissioning | null>",
+        "value_chain_position": "<generation | fuel_production | fuel_transport | fuel_storage | electricity_transmission | electricity_distribution | electricity_storage | end_use_efficiency | end_use_transport | carbon_management | null>",
+        "debt_type": "<senior | subordinated | mezzanine | bond | concessional | bank_loan | convertible | credit_line | equipment_financing | supplier_credit | null>"
       },
       "confidence_score": <float between 0.0 and 1.0>,
       "notes": "<any adjustments, one-time items, or calculation notes>"
