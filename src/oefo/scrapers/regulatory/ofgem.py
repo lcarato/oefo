@@ -102,9 +102,67 @@ class OfgemScraper(RegulatoryScraperBase):
         logger.info(f"Ofgem scraping complete. Downloaded {len(documents)} documents.")
         return documents
 
+    def _get_sitemap_urls(self, sitemap_url: str, filter_pattern: str = None) -> list[str]:
+        """Fetch and parse sitemap XML for URLs matching a pattern."""
+        try:
+            response = self.session.get(sitemap_url, timeout=60)
+            response.raise_for_status()
+            urls = re.findall(r'<loc>(.*?)</loc>', response.text)
+            if filter_pattern:
+                urls = [u for u in urls if re.search(filter_pattern, u)]
+            return urls
+        except Exception as e:
+            logger.warning(f"Sitemap fetch failed for {sitemap_url}: {e}")
+            return []
+
+    def _known_publications(self) -> list[dict]:
+        """Return known high-value Ofgem RIIO publication URLs."""
+        base = self.base_url
+        return [
+            {
+                "decision_id": "ofgem_riio_ed2_final_determinations",
+                "title": "RIIO-ED2 Final Determinations",
+                "url": f"{base}/publications/riio-ed2-final-determinations",
+                "subject": "RIIO Price Control Decision",
+            },
+            {
+                "decision_id": "ofgem_riio2_sector_methodology",
+                "title": "RIIO-2 Sector Specific Methodology Decision",
+                "url": f"{base}/publications/riio-2-sector-specific-methodology-decision",
+                "subject": "RIIO Methodology Decision",
+            },
+            {
+                "decision_id": "ofgem_riio_ed2_draft_determinations",
+                "title": "RIIO-ED2 Draft Determinations",
+                "url": f"{base}/consultation/riio-ed2-draft-determinations",
+                "subject": "RIIO Draft Determinations",
+            },
+            {
+                "decision_id": "ofgem_riio2_final_determinations_core",
+                "title": "RIIO-2 Final Determinations – Core Methodology",
+                "url": f"{base}/publications/riio-2-final-determinations-core-methodology",
+                "subject": "RIIO Price Control Decision",
+            },
+            {
+                "decision_id": "ofgem_riio_gd2_final_determinations",
+                "title": "RIIO-GD2 Final Determinations",
+                "url": f"{base}/publications/riio-gd2-final-determinations",
+                "subject": "RIIO Price Control Decision",
+            },
+            {
+                "decision_id": "ofgem_riio_t2_final_determinations",
+                "title": "RIIO-T2 Final Determinations",
+                "url": f"{base}/publications/riio-t2-final-determinations",
+                "subject": "RIIO Price Control Decision",
+            },
+        ]
+
     def list_decisions(self) -> list[dict]:
         """
         List Ofgem RIIO price control decisions.
+
+        Combines: known publication URLs (primary) + sitemap filtering
+        + publications search (complement).
 
         Returns:
             List of decision metadata
@@ -114,21 +172,55 @@ class OfgemScraper(RegulatoryScraperBase):
         decisions = []
         seen_urls = set()
 
-        # Search Ofgem publications with multiple cost-of-capital keywords
+        # Strategy 1: Known publication URLs (primary — verified working)
+        for d in self._known_publications():
+            if d["url"] not in seen_urls:
+                seen_urls.add(d["url"])
+                decisions.append(d)
+
+        logger.debug(f"  Known publications: {len(decisions)}")
+
+        # Strategy 2: Sitemap filtering for RIIO URLs
+        riio_pattern = r"(?i)riio"
+        exclude_pattern = r"/cy/"  # Exclude Welsh translations
+        for page in range(1, 6):  # Up to 5 sitemap pages
+            sitemap_url = f"{self.base_url}/sitemap.xml?page={page}"
+            urls = self._get_sitemap_urls(sitemap_url, filter_pattern=riio_pattern)
+            if not urls:
+                break
+            for url in urls:
+                if url in seen_urls or re.search(exclude_pattern, url):
+                    continue
+                # Further filter for decision/determination/finance pages
+                if any(kw in url.lower() for kw in [
+                    "determination", "decision", "publication", "finance",
+                    "cost-of", "allowed-return", "equity", "methodology",
+                ]):
+                    seen_urls.add(url)
+                    slug = url.rstrip("/").split("/")[-1]
+                    title = slug.replace("-", " ").title()
+                    decisions.append({
+                        "decision_id": f"ofgem_sitemap_{slug[:50]}",
+                        "title": title,
+                        "url": url,
+                        "subject": "RIIO Price Control Decision",
+                    })
+
+        logger.debug(f"  After sitemap: {len(decisions)} decisions")
+
+        # Strategy 3: Publications search (complement)
+        relevance_keywords = [
+            "riio", "cost of", "wacc", "price control",
+            "final determination", "allowed return",
+            "equity", "finance", "network price",
+        ]
+
         search_keywords = [
             "RIIO cost of equity",
             "RIIO cost of capital",
             "RIIO WACC",
             "allowed return",
             "price control final determination",
-            "cost of debt",
-            "equity beta",
-        ]
-
-        relevance_keywords = [
-            "riio", "cost of", "wacc", "price control",
-            "final determination", "allowed return",
-            "equity", "finance", "network price",
         ]
 
         for keyword in search_keywords:
@@ -161,27 +253,7 @@ class OfgemScraper(RegulatoryScraperBase):
                 logger.debug(f"Ofgem search failed for '{keyword}': {e}")
                 continue
 
-        # Fallback: try known working page
-        if not decisions:
-            try:
-                fallback_url = f"{self.base_url}/energy-regulation/how-we-regulate/energy-network-price-controls"
-                soup = self.get_soup(fallback_url)
-                for link in soup.find_all("a", href=True):
-                    href = link.get("href", "")
-                    text = link.get_text(strip=True)
-                    if any(kw in text.lower() for kw in relevance_keywords):
-                        full_url = urljoin(self.base_url, href) if href.startswith("/") else href
-                        if full_url not in seen_urls:
-                            decisions.append({
-                                "decision_id": f"ofgem_{text[:50].replace(' ', '_')}",
-                                "title": text,
-                                "url": full_url,
-                                "subject": "RIIO Price Control Decision",
-                            })
-            except Exception:
-                pass
-
-        logger.debug(f"  Found {len(decisions)} decisions")
+        logger.debug(f"  Found {len(decisions)} decisions total")
         return decisions
 
     def download_decision(self, decision_id: str) -> Optional[str]:

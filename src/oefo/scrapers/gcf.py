@@ -10,6 +10,7 @@ project design and financial information.
 """
 
 import logging
+import re
 import time
 from typing import Optional
 from urllib.parse import urljoin
@@ -97,16 +98,29 @@ class GCFScraper(BaseScraper):
         "generation", "photovoltaic", "turbine",
     ]
 
-    # Maximum FP number to iterate through
+    # Maximum FP number to iterate through (fallback only)
     MAX_FP_NUMBER = 300
+
+    def _get_sitemap_urls(self, sitemap_url: str, filter_pattern: str = None) -> list[str]:
+        """Fetch and parse sitemap XML for URLs matching a pattern."""
+        try:
+            response = self.session.get(sitemap_url, timeout=60)
+            response.raise_for_status()
+            urls = re.findall(r'<loc>(.*?)</loc>', response.text)
+            if filter_pattern:
+                urls = [u for u in urls if re.search(filter_pattern, u)]
+            return urls
+        except Exception as e:
+            logger.warning(f"Sitemap fetch failed for {sitemap_url}: {e}")
+            return []
 
     def list_projects(self, sector: str = "energy") -> list[str]:
         """
-        List GCF projects by iterating through FP numbers.
+        List GCF projects using sitemap (primary) or FP iteration (fallback).
 
-        GCF project URLs follow the pattern /project/fp{NNN} (singular
-        "project", not "projects"). We iterate through FP numbers and
-        check which pages exist.
+        Primary: Parse sitemap for /project/fp URLs (371 projects, instant).
+        Fallback: Iterate FP numbers with HEAD requests if sitemap fails.
+        Energy filtering is deferred to download_funding_proposal().
 
         Args:
             sector: Sector name (e.g., "energy")
@@ -114,42 +128,49 @@ class GCFScraper(BaseScraper):
         Returns:
             List of project URLs
         """
-        logger.debug(f"Listing {sector} sector projects via FP iteration...")
+        logger.debug(f"Listing {sector} sector projects...")
 
         project_urls = []
-        consecutive_misses = 0
 
-        for i in range(1, self.MAX_FP_NUMBER + 1):
-            fp_id = f"fp{i:03d}"
-            url = f"{self.base_url}/project/{fp_id}"
-
-            try:
-                resp = self.session.head(url, timeout=10, allow_redirects=True)
-                if resp.status_code == 200:
-                    project_urls.append(url)
-                    consecutive_misses = 0
-                    logger.debug(f"  Found project: {fp_id}")
-                else:
-                    consecutive_misses += 1
-            except Exception:
-                consecutive_misses += 1
-
-            # Stop after 20 consecutive misses past the last hit
-            if consecutive_misses >= 20 and project_urls:
-                logger.debug(f"  Stopping after 20 consecutive misses at FP{i:03d}")
+        # Strategy 1: Sitemap-based discovery (instant, complete)
+        for page in range(1, 5):  # Check up to 4 sitemap pages
+            sitemap_url = f"{self.base_url}/sitemap.xml?page={page}"
+            urls = self._get_sitemap_urls(sitemap_url, filter_pattern=r"/project/fp\d")
+            if not urls:
                 break
+            project_urls.extend(urls)
+
+        if project_urls:
+            # Deduplicate and normalize
+            seen = set()
+            unique_urls = []
+            for url in project_urls:
+                normalized = url.rstrip("/")
+                if normalized not in seen:
+                    seen.add(normalized)
+                    unique_urls.append(normalized)
+            project_urls = unique_urls
+            logger.info(f"Sitemap: found {len(project_urls)} GCF project URLs")
+        else:
+            # Strategy 2: Fallback — HEAD scan (slow but reliable)
+            logger.info("Sitemap unavailable, falling back to FP iteration...")
+            consecutive_misses = 0
+            for i in range(1, self.MAX_FP_NUMBER + 1):
+                fp_id = f"fp{i:03d}"
+                url = f"{self.base_url}/project/{fp_id}"
+                try:
+                    resp = self.session.head(url, timeout=10, allow_redirects=True)
+                    if resp.status_code == 200:
+                        project_urls.append(url)
+                        consecutive_misses = 0
+                    else:
+                        consecutive_misses += 1
+                except Exception:
+                    consecutive_misses += 1
+                if consecutive_misses >= 20 and project_urls:
+                    break
 
         logger.info(f"Found {len(project_urls)} GCF project pages")
-
-        # Filter for energy-relevant projects if sector specified
-        if sector == "energy" and project_urls:
-            energy_urls = []
-            for url in project_urls:
-                if self._is_energy_project(url):
-                    energy_urls.append(url)
-            logger.info(f"Filtered to {len(energy_urls)} energy projects")
-            return energy_urls
-
         return project_urls
 
     def _is_energy_project(self, url: str) -> bool:

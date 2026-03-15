@@ -107,11 +107,36 @@ class FERCScraper(RegulatoryScraperBase):
         logger.info(f"FERC scraping complete. Downloaded {len(documents)} documents.")
         return documents
 
+    def _known_documents(self) -> list[dict]:
+        """Return known FERC orders/decisions with ROE determinations."""
+        return [
+            {
+                "decision_id": "ferc_opinion_531",
+                "title": "Opinion No. 531 - Coakley et al. v. Bangor Hydro (ROE methodology)",
+                "url": "https://www.ferc.gov/media/opinion-no-531",
+                "subject": "Return on Equity Methodology",
+            },
+            {
+                "decision_id": "ferc_opinion_569",
+                "title": "Opinion No. 569-A - New England Transmission ROE",
+                "url": "https://www.ferc.gov/media/opinion-no-569-a",
+                "subject": "Return on Equity Determination",
+            },
+            {
+                "decision_id": "ferc_policy_statement_roe",
+                "title": "Policy Statement on Determining Return on Equity (2022)",
+                "url": "https://www.ferc.gov/media/e-2-rm20-10-000",
+                "subject": "Return on Equity Policy",
+            },
+        ]
+
     def list_decisions(self) -> list[dict]:
         """
         List FERC rate cases and project orders.
 
-        Uses FERC's eLibrary search to find relevant documents.
+        FERC eLibrary is an Angular SPA behind a WAF — direct scraping
+        is unreliable. Uses known documents as primary source, with
+        eLibrary search as complement (may fail gracefully).
 
         Returns:
             List of decision metadata
@@ -119,16 +144,22 @@ class FERCScraper(RegulatoryScraperBase):
         logger.debug("Listing FERC rate cases and project orders...")
 
         decisions = []
-        seen_accessions = set()
+        seen_ids = set()
 
+        # Strategy 1: Known documents (reliable, site-independent)
+        for d in self._known_documents():
+            if d["decision_id"] not in seen_ids:
+                seen_ids.add(d["decision_id"])
+                decisions.append(d)
+
+        logger.debug(f"  Known documents: {len(decisions)}")
+
+        # Strategy 2: eLibrary search (may fail — Angular SPA behind WAF)
+        seen_accessions = set()
         search_keywords = [
             "cost of equity",
             "return on equity",
             "cost of capital",
-            "capital structure",
-            "WACC",
-            "allowed return",
-            "base return on equity",
         ]
 
         relevance_keywords = [
@@ -138,7 +169,6 @@ class FERCScraper(RegulatoryScraperBase):
 
         for keyword in search_keywords:
             try:
-                # eLibrary uses GET form submission — server-rendered HTML
                 search_url = f"{self.elibrary_url}/eLibrary/search"
                 params = {
                     "Selectsearch": "general",
@@ -151,12 +181,16 @@ class FERCScraper(RegulatoryScraperBase):
                     "submit": "Search",
                 }
 
-                # Build URL with params
                 param_str = "&".join(f"{k}={v}" for k, v in params.items())
                 full_search_url = f"{search_url}?{param_str}"
-                soup = self.get_soup(full_search_url)
 
-                # Parse result table rows
+                # Use short timeout — eLibrary is Angular SPA and may not return HTML
+                resp = self.session.get(full_search_url, timeout=10)
+                resp.raise_for_status()
+
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(resp.text, "html.parser")
+
                 for row in soup.find_all("tr"):
                     cells = row.find_all("td")
                     if len(cells) < 6:
@@ -169,7 +203,6 @@ class FERCScraper(RegulatoryScraperBase):
                     if not accession or accession in seen_accessions:
                         continue
 
-                    # Filter for relevant documents
                     desc_lower = description.lower()
                     if not (
                         any(kw in desc_lower for kw in relevance_keywords)
@@ -179,7 +212,6 @@ class FERCScraper(RegulatoryScraperBase):
 
                     seen_accessions.add(accession)
 
-                    # Extract file links from the last cell
                     file_links = []
                     files_cell = cells[-1]
                     for link in files_cell.find_all("a", href=True):
@@ -188,20 +220,22 @@ class FERCScraper(RegulatoryScraperBase):
                             file_links.append(urljoin(self.elibrary_url, href))
 
                     decision_id = f"ferc_{accession.split()[0] if accession else keyword[:10]}"
-                    decisions.append({
-                        "decision_id": decision_id,
-                        "title": description[:200],
-                        "url": file_links[0] if file_links else search_url,
-                        "subject": "Rate Case or Project Order",
-                        "accession": accession,
-                        "class_type": class_type,
-                    })
+                    if decision_id not in seen_ids:
+                        seen_ids.add(decision_id)
+                        decisions.append({
+                            "decision_id": decision_id,
+                            "title": description[:200],
+                            "url": file_links[0] if file_links else search_url,
+                            "subject": "Rate Case or Project Order",
+                            "accession": accession,
+                            "class_type": class_type,
+                        })
 
             except Exception as e:
                 logger.warning(f"FERC eLibrary search failed for '{keyword}': {e}")
                 continue
 
-        logger.debug(f"  Found {len(decisions)} decisions")
+        logger.debug(f"  Found {len(decisions)} decisions total")
         return decisions
 
     def download_decision(self, decision_id: str) -> Optional[str]:
@@ -217,9 +251,11 @@ class FERCScraper(RegulatoryScraperBase):
         logger.debug(f"Downloading decision: {decision_id}")
 
         try:
-            decisions = self.list_decisions()
+            if not hasattr(self, "_decisions_cache"):
+                self._decisions_cache = self.list_decisions()
+
             decision = next(
-                (d for d in decisions if d.get("decision_id") == decision_id),
+                (d for d in self._decisions_cache if d.get("decision_id") == decision_id),
                 None,
             )
 
@@ -229,18 +265,29 @@ class FERCScraper(RegulatoryScraperBase):
 
             decision_url = decision.get("url")
 
+            # Try direct PDF download first (for known document URLs)
+            if decision_url.endswith(".pdf"):
+                filename = f"ferc_{decision_id}_{int(time.time())}.pdf"
+                try:
+                    filepath = self.download_pdf(decision_url, filename)
+                    logger.info(f"  Downloaded: {filepath}")
+                    return str(filepath)
+                except Exception as e:
+                    logger.warning(f"  Direct PDF failed: {e}")
+
+            # Try fetching the page and looking for PDF links
             try:
-                soup = self.get_soup(decision_url)
+                resp = self.session.get(decision_url, timeout=10)
+                resp.raise_for_status()
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(resp.text, "html.parser")
             except Exception as e:
                 logger.warning(f"Could not fetch decision page: {e}")
                 return None
 
-            # Look for PDF or document link
             pdf_link = None
             for link in soup.find_all("a", href=True):
                 href = link.get("href", "")
-                text = link.get_text(strip=True).lower()
-
                 if href.endswith(".pdf"):
                     pdf_link = href
                     break
