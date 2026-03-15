@@ -90,9 +90,23 @@ class GCFScraper(BaseScraper):
         logger.info(f"GCF scraping complete. Downloaded {len(documents)} documents.")
         return documents
 
+    # Energy keywords for filtering projects
+    ENERGY_KEYWORDS = [
+        "energy", "solar", "wind", "power", "renewable", "electricity",
+        "hydropower", "geothermal", "biomass", "grid", "transmission",
+        "generation", "photovoltaic", "turbine",
+    ]
+
+    # Maximum FP number to iterate through
+    MAX_FP_NUMBER = 300
+
     def list_projects(self, sector: str = "energy") -> list[str]:
         """
-        List GCF projects in a specific sector.
+        List GCF projects by iterating through FP numbers.
+
+        GCF project URLs follow the pattern /project/fp{NNN} (singular
+        "project", not "projects"). We iterate through FP numbers and
+        check which pages exist.
 
         Args:
             sector: Sector name (e.g., "energy")
@@ -100,38 +114,52 @@ class GCFScraper(BaseScraper):
         Returns:
             List of project URLs
         """
-        logger.debug(f"Listing {sector} sector projects...")
+        logger.debug(f"Listing {sector} sector projects via FP iteration...")
 
         project_urls = []
+        consecutive_misses = 0
 
+        for i in range(1, self.MAX_FP_NUMBER + 1):
+            fp_id = f"fp{i:03d}"
+            url = f"{self.base_url}/project/{fp_id}"
+
+            try:
+                resp = self.session.head(url, timeout=10, allow_redirects=True)
+                if resp.status_code == 200:
+                    project_urls.append(url)
+                    consecutive_misses = 0
+                    logger.debug(f"  Found project: {fp_id}")
+                else:
+                    consecutive_misses += 1
+            except Exception:
+                consecutive_misses += 1
+
+            # Stop after 20 consecutive misses past the last hit
+            if consecutive_misses >= 20 and project_urls:
+                logger.debug(f"  Stopping after 20 consecutive misses at FP{i:03d}")
+                break
+
+        logger.info(f"Found {len(project_urls)} GCF project pages")
+
+        # Filter for energy-relevant projects if sector specified
+        if sector == "energy" and project_urls:
+            energy_urls = []
+            for url in project_urls:
+                if self._is_energy_project(url):
+                    energy_urls.append(url)
+            logger.info(f"Filtered to {len(energy_urls)} energy projects")
+            return energy_urls
+
+        return project_urls
+
+    def _is_energy_project(self, url: str) -> bool:
+        """Check if a project page contains energy-related keywords."""
         try:
-            # GCF projects page
-            projects_url = f"{self.base_url}/projects"
-            soup = self.get_soup(projects_url)
-
-            # Look for project links
-            for link in soup.find_all("a", href=True):
-                href = link.get("href", "")
-                text = link.get_text(strip=True)
-
-                # Check if this looks like a project link
-                if "/projects/" in href and href.startswith("/"):
-                    full_url = urljoin(self.base_url, href)
-
-                    # Try to filter by sector from link text if available
-                    if sector.lower() in text.lower() or True:  # Get all for now
-                        if full_url not in project_urls:
-                            project_urls.append(full_url)
-
-            # Remove duplicates
-            project_urls = list(set(project_urls))
-            logger.debug(f"  Found {len(project_urls)} project URLs")
-
-            return project_urls
-
-        except Exception as e:
-            logger.error(f"Failed to list projects: {e}")
-            return []
+            soup = self.get_soup(url)
+            text = soup.get_text(separator=" ").lower()
+            return any(kw in text for kw in self.ENERGY_KEYWORDS)
+        except Exception:
+            return False
 
     def scrape_project_page(self, url: str) -> dict:
         """
@@ -219,22 +247,33 @@ class GCFScraper(BaseScraper):
             soup = self.get_soup(project_url)
 
             # Look for project document/proposal PDF
+            # GCF project pages list documents under a "Documents" section
+            # PDF links may contain /document/ in the URL path
             pdf_link = None
-            doc_types = [
-                "Proposal",
-                "Funding Proposal",
-                "Project Document",
-                "PD",
-                "Funding Document",
-            ]
 
             for link in soup.find_all("a", href=True):
                 href = link.get("href", "")
-                text = link.get_text(strip=True)
+                text = link.get_text(strip=True).lower()
 
-                # Check if this is a document link we want
-                if any(doc_type in text for doc_type in doc_types):
-                    if href.endswith(".pdf") or "pdf" in href.lower():
+                # Match funding proposal / approved documents
+                is_proposal = any(kw in text for kw in [
+                    "funding proposal", "approved", "project document",
+                    "proposal", "funding document",
+                ])
+                is_pdf = (
+                    ".pdf" in href.lower()
+                    or "/document/" in href
+                )
+
+                if is_proposal and is_pdf:
+                    pdf_link = href
+                    break
+
+            # Fallback: grab any PDF link on the page
+            if not pdf_link:
+                for link in soup.find_all("a", href=True):
+                    href = link.get("href", "")
+                    if ".pdf" in href.lower() or "/document/" in href:
                         pdf_link = href
                         break
 

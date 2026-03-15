@@ -112,52 +112,77 @@ class OfgemScraper(RegulatoryScraperBase):
         logger.debug("Listing Ofgem RIIO price control decisions...")
 
         decisions = []
+        seen_urls = set()
 
-        try:
-            # Ofgem price control pages
-            price_control_url = f"{self.base_url}/networks-pipelines/financial-regulation-electricity-and-gas-networks/financial-incentives-network-innovation"
+        # Search Ofgem publications with multiple cost-of-capital keywords
+        search_keywords = [
+            "RIIO cost of equity",
+            "RIIO cost of capital",
+            "RIIO WACC",
+            "allowed return",
+            "price control final determination",
+            "cost of debt",
+            "equity beta",
+        ]
 
-            soup = self.get_soup(price_control_url)
+        relevance_keywords = [
+            "riio", "cost of", "wacc", "price control",
+            "final determination", "allowed return",
+            "equity", "finance", "network price",
+        ]
 
-            # Look for RIIO decision links
-            for link in soup.find_all("a", href=True):
-                href = link.get("href", "")
-                text = link.get_text(strip=True)
+        for keyword in search_keywords:
+            try:
+                search_url = f"{self.base_url}/search/publications?keyword={keyword.replace(' ', '+')}"
+                soup = self.get_soup(search_url)
 
-                # Filter for RIIO/price control decisions
-                if any(
-                    keyword in text.lower()
-                    for keyword in [
-                        "riio",
-                        "price control",
-                        "final decision",
-                        "determination",
-                        "cost of capital",
-                        "wacc",
-                    ]
-                ):
-                    if not href.startswith("http"):
-                        full_url = urljoin(self.base_url, href)
-                    else:
-                        full_url = href
+                for link in soup.find_all("a", href=True):
+                    href = link.get("href", "")
+                    text = link.get_text(strip=True)
 
-                    decision_id = f"ofgem_{text.replace(' ', '_')}"
+                    if not any(kw in text.lower() for kw in relevance_keywords):
+                        continue
 
-                    decisions.append(
-                        {
-                            "decision_id": decision_id,
-                            "title": text,
-                            "url": full_url,
-                            "subject": "RIIO Price Control Decision",
-                        }
-                    )
+                    full_url = urljoin(self.base_url, href) if href.startswith("/") else href
 
-            logger.debug(f"  Found {len(decisions)} decisions")
-            return decisions
+                    if full_url in seen_urls:
+                        continue
+                    seen_urls.add(full_url)
 
-        except Exception as e:
-            logger.error(f"Failed to list decisions: {e}")
-            return []
+                    decision_id = f"ofgem_{text[:50].replace(' ', '_')}"
+                    decisions.append({
+                        "decision_id": decision_id,
+                        "title": text,
+                        "url": full_url,
+                        "subject": "RIIO Price Control Decision",
+                    })
+
+            except Exception as e:
+                logger.debug(f"Ofgem search failed for '{keyword}': {e}")
+                continue
+
+        # Fallback: try known working page
+        if not decisions:
+            try:
+                fallback_url = f"{self.base_url}/energy-regulation/how-we-regulate/energy-network-price-controls"
+                soup = self.get_soup(fallback_url)
+                for link in soup.find_all("a", href=True):
+                    href = link.get("href", "")
+                    text = link.get_text(strip=True)
+                    if any(kw in text.lower() for kw in relevance_keywords):
+                        full_url = urljoin(self.base_url, href) if href.startswith("/") else href
+                        if full_url not in seen_urls:
+                            decisions.append({
+                                "decision_id": f"ofgem_{text[:50].replace(' ', '_')}",
+                                "title": text,
+                                "url": full_url,
+                                "subject": "RIIO Price Control Decision",
+                            })
+            except Exception:
+                pass
+
+        logger.debug(f"  Found {len(decisions)} decisions")
+        return decisions
 
     def download_decision(self, decision_id: str) -> Optional[str]:
         """

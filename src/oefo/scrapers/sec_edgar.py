@@ -30,6 +30,25 @@ from .base import BaseScraper
 
 logger = logging.getLogger(__name__)
 
+# Energy-related SIC codes for post-processing filter
+ENERGY_SIC_CODES = {
+    "4911", "4922", "4923", "4924", "4931", "4932", "4939", "4941",  # Utilities
+    "1311", "1381", "1382",  # Oil & gas
+    "3674",  # Solar cell manufacturing
+}
+
+# Cost-of-capital search keywords
+COC_KEYWORDS = [
+    "cost of capital",
+    "weighted average cost of capital",
+    "cost of equity",
+    "cost of debt",
+    "capital structure",
+    "return on equity",
+    "allowed return",
+    "WACC",
+]
+
 # Key XBRL concepts for energy finance extraction
 XBRL_FINANCIAL_CONCEPTS = {
     # Debt parameters
@@ -86,14 +105,8 @@ class SECEdgarScraper(BaseScraper):
         try:
             logger.info("Starting SEC EDGAR scraping...")
 
-            # Search for energy companies by keyword
-            keywords = [
-                "renewable energy",
-                "solar power",
-                "wind power",
-                "utility",
-                "power generation",
-            ]
+            # Search for cost-of-capital filings
+            keywords = COC_KEYWORDS
 
             all_filings = []
             for keyword in keywords:
@@ -157,15 +170,19 @@ class SECEdgarScraper(BaseScraper):
             # SEC Full-Text Search API endpoint
             search_url = "https://efts.sec.gov/LATEST/search-index"
 
-            # Build query
-            query = quote(keyword)
+            # Build query — use separate params for form types (not Lucene syntax)
+            params = {
+                "q": f'"{keyword}"',
+                "from": 0,
+                "size": 100,
+                "dateRange": "custom",
+                "startdt": "2020-01-01",
+                "enddt": "2026-12-31",
+            }
             if filing_types:
-                type_filter = " OR ".join([f'form_type:"{t}"' for t in filing_types])
-                query = f"{query} AND ({type_filter})"
+                params["forms"] = ",".join(filing_types)
 
-            params = {"q": query, "from": 0, "size": 100}
-
-            response = requests.get(search_url, params=params, timeout=30)
+            response = self.session.get(search_url, params=params, timeout=30)
             response.raise_for_status()
 
             data = response.json()
@@ -173,16 +190,33 @@ class SECEdgarScraper(BaseScraper):
 
             for hit in hits:
                 source = hit.get("_source", {})
-                filings.append(
-                    {
-                        "company": source.get("company_name"),
-                        "cik": source.get("cik_str"),
-                        "filing_type": source.get("form_type"),
-                        "date": source.get("filing_date"),
-                        "url": source.get("filename"),
-                        "accession": source.get("accession_number"),
-                    }
-                )
+
+                # Build filing URL from adsh and cik
+                adsh = source.get("adsh", "")
+                cik = (source.get("ciks") or [""])[0].lstrip("0") or ""
+                if adsh and cik:
+                    filing_url = (
+                        f"https://www.sec.gov/Archives/edgar/data/"
+                        f"{cik}/{adsh.replace('-', '')}/{adsh}-index.htm"
+                    )
+                else:
+                    filing_url = None
+
+                # Filter by energy SIC codes if available
+                sics = set(source.get("sics") or [])
+                is_energy = bool(sics & ENERGY_SIC_CODES) if sics else True
+
+                if filing_url and is_energy:
+                    filings.append(
+                        {
+                            "company": (source.get("display_names") or [None])[0],
+                            "cik": cik,
+                            "filing_type": source.get("form"),
+                            "date": source.get("file_date"),
+                            "url": filing_url,
+                            "accession": adsh,
+                        }
+                    )
 
             logger.debug(f"  Found {len(filings)} results")
             return filings
@@ -234,7 +268,7 @@ class SECEdgarScraper(BaseScraper):
                 "https://www.sec.gov/files/company_tickers.json"
             )
 
-            response = requests.get(tickers_url, timeout=30)
+            response = self.session.get(tickers_url, timeout=30)
             response.raise_for_status()
 
             data = response.json()
@@ -281,7 +315,7 @@ class SECEdgarScraper(BaseScraper):
             # SEC XBRL API
             xbrl_url = f"{self.xbrl_api_url}/CIK{cik}.json"
 
-            response = requests.get(xbrl_url, timeout=30)
+            response = self.session.get(xbrl_url, timeout=30)
             response.raise_for_status()
 
             data = response.json()
@@ -294,12 +328,15 @@ class SECEdgarScraper(BaseScraper):
                 "filings": [],
             }
 
-            for filing in filings.get("accessionNumber", []):
+            accession_numbers = filings.get("accessionNumber", [])
+            forms = filings.get("form", [])
+            filing_dates = filings.get("filingDate", [])
+            for i, accession in enumerate(accession_numbers):
                 metrics["filings"].append(
                     {
-                        "accession": filing,
-                        "form_type": filing.get("form"),
-                        "filing_date": filing.get("filingDate"),
+                        "accession": accession,
+                        "form_type": forms[i] if i < len(forms) else None,
+                        "filing_date": filing_dates[i] if i < len(filing_dates) else None,
                     }
                 )
 
@@ -352,9 +389,8 @@ class SECEdgarScraper(BaseScraper):
                 f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
             )
 
-            response = requests.get(
+            response = self.session.get(
                 companyfacts_url,
-                headers={"User-Agent": self.user_agent},
                 timeout=30,
             )
             response.raise_for_status()

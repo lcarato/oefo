@@ -49,7 +49,7 @@ class ANEELScraper(RegulatoryScraperBase):
         """Initialize ANEEL scraper."""
         super().__init__(
             name="ANEEL",
-            base_url="https://www.aneel.gov.br",
+            base_url="https://www.gov.br/aneel/pt-br",
             output_dir=output_dir,
             language="Portuguese",
             regulator_name="Agência Nacional de Energia Elétrica",
@@ -121,60 +121,67 @@ class ANEELScraper(RegulatoryScraperBase):
         logger.debug("Listing ANEEL tariff review decisions...")
 
         decisions = []
+        seen_urls = set()
 
-        try:
-            # ANEEL tariff review page
-            url = f"{self.base_url}/regulacao-tarifaria"
+        # Portuguese WACC keywords
+        wacc_keywords_pt = [
+            "custo de capital", "wacc", "taxa de retorno",
+            "custo do capital próprio", "custo da dívida",
+            "prêmio de risco", "taxa livre de risco",
+            "beta", "estrutura de capital",
+            "remuneração regulatória", "remuneração do capital",
+            "capm", "submódulo 2.4", "submódulo 12.3",
+            "revisão tarifária", "reajuste",
+        ]
 
-            soup = self.get_soup(url)
+        # Try multiple pages (site structure may vary)
+        urls_to_try = [
+            f"{self.base_url}/centrais-de-conteudos/procedimentos-regulatorios/proret",
+            f"{self.base_url}/assuntos/tarifas",
+            f"{self.base_url}/assuntos/tarifas/regulacao-tarifaria-proret",
+        ]
 
-            # Look for decision links and metadata
-            for link in soup.find_all("a", href=True):
-                href = link.get("href", "")
-                text = link.get_text(strip=True)
+        for page_url in urls_to_try:
+            try:
+                soup = self.get_soup(page_url)
 
-                # Check if this looks like a tariff review decision
-                if any(
-                    keyword in text.lower()
-                    for keyword in [
-                        "revisão",
-                        "reajuste",
-                        "tarifa",
-                        "custo de capital",
-                        "wacc",
-                    ]
-                ):
-                    if href.startswith("/"):
-                        full_url = urljoin(self.base_url, href)
-                    else:
-                        full_url = href
+                for link in soup.find_all("a", href=True):
+                    href = link.get("href", "")
+                    text = link.get_text(strip=True)
 
-                    # Extract decision date if available
-                    date_match = re.search(r"(\d{4})", text)
-                    year = date_match.group(1) if date_match else None
+                    if any(kw in text.lower() for kw in wacc_keywords_pt):
+                        full_url = urljoin(self.base_url, href) if href.startswith("/") else href
 
-                    decision_id = f"aneel_{href.replace('/', '_')}"
+                        if full_url in seen_urls:
+                            continue
+                        seen_urls.add(full_url)
 
-                    decisions.append(
-                        {
+                        date_match = re.search(r"(\d{4})", text)
+                        year = date_match.group(1) if date_match else None
+
+                        decision_id = f"aneel_{href.replace('/', '_')}"
+
+                        decisions.append({
                             "decision_id": decision_id,
                             "title": text,
                             "url": full_url,
                             "year": year,
-                            "subject": "Tariff Review",
-                        }
-                    )
+                            "subject": "Cost of Capital / Tariff Review",
+                        })
 
-            logger.debug(f"  Found {len(decisions)} decisions")
-            return decisions
+            except Exception as e:
+                logger.debug(f"Failed to fetch {page_url}: {e}")
+                continue
 
-        except Exception as e:
-            logger.error(f"Failed to list decisions: {e}")
-            return []
+        logger.debug(f"  Found {len(decisions)} decisions")
+        return decisions
 
     def download_decision(self, decision_id: str) -> Optional[str]:
         """
         Download a tariff review decision document.
+
+        Note: Called from scrape() which already has the decision list.
+        We cache decisions to avoid re-fetching.
 
         Args:
             decision_id: Unique identifier of the decision
@@ -185,10 +192,12 @@ class ANEELScraper(RegulatoryScraperBase):
         logger.debug(f"Downloading decision: {decision_id}")
 
         try:
-            # Reconstruct URL from decision_id or get from list
-            decisions = self.list_decisions()
+            # Use cached decisions if available, otherwise re-fetch
+            if not hasattr(self, "_decisions_cache"):
+                self._decisions_cache = self.list_decisions()
+
             decision = next(
-                (d for d in decisions if d.get("decision_id") == decision_id),
+                (d for d in self._decisions_cache if d.get("decision_id") == decision_id),
                 None,
             )
 
@@ -198,9 +207,13 @@ class ANEELScraper(RegulatoryScraperBase):
 
             decision_url = decision.get("url")
 
-            # Try to find PDF link on decision page
-            soup = self.get_soup(decision_url)
+            try:
+                soup = self.get_soup(decision_url)
+            except Exception as e:
+                logger.warning(f"Could not fetch decision page: {e}")
+                return None
 
+            # Try to find PDF link on decision page
             pdf_link = None
             for link in soup.find_all("a", href=True):
                 href = link.get("href", "")

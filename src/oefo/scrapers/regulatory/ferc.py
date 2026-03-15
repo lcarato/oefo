@@ -119,53 +119,90 @@ class FERCScraper(RegulatoryScraperBase):
         logger.debug("Listing FERC rate cases and project orders...")
 
         decisions = []
+        seen_accessions = set()
 
-        try:
-            # FERC orders/decisions page
-            url = f"{self.base_url}/search/orders"
+        search_keywords = [
+            "cost of equity",
+            "return on equity",
+            "cost of capital",
+            "capital structure",
+            "WACC",
+            "allowed return",
+            "base return on equity",
+        ]
 
-            # Try to get orders from main page
-            soup = self.get_soup(url)
+        relevance_keywords = [
+            "order", "rate case", "cost of equity", "return on equity",
+            "cost of capital", "capital structure", "roe",
+        ]
 
-            # Look for order/decision links
-            for link in soup.find_all("a", href=True):
-                href = link.get("href", "")
-                text = link.get_text(strip=True)
+        for keyword in search_keywords:
+            try:
+                # eLibrary uses GET form submission — server-rendered HTML
+                search_url = f"{self.elibrary_url}/eLibrary/search"
+                params = {
+                    "Selectsearch": "general",
+                    "textsearch": keyword,
+                    "searchDescription": "on",
+                    "searchFullText": "on",
+                    "Issuance": "on",
+                    "dFROM": "01/01/2020",
+                    "dTO": "12/31/2026",
+                    "submit": "Search",
+                }
 
-                # Filter for relevant order types
-                if any(
-                    keyword in text.lower()
-                    for keyword in [
-                        "order",
-                        "certificate",
-                        "rate case",
-                        "cost of capital",
-                        "roe",
-                        "return on equity",
-                    ]
-                ):
-                    if not href.startswith("http"):
-                        full_url = urljoin(self.base_url, href)
-                    else:
-                        full_url = href
+                # Build URL with params
+                param_str = "&".join(f"{k}={v}" for k, v in params.items())
+                full_search_url = f"{search_url}?{param_str}"
+                soup = self.get_soup(full_search_url)
 
-                    decision_id = f"ferc_{text.replace(' ', '_')}"
+                # Parse result table rows
+                for row in soup.find_all("tr"):
+                    cells = row.find_all("td")
+                    if len(cells) < 6:
+                        continue
 
-                    decisions.append(
-                        {
-                            "decision_id": decision_id,
-                            "title": text,
-                            "url": full_url,
-                            "subject": "Rate Case or Project Order",
-                        }
-                    )
+                    accession = cells[1].get_text(strip=True) if len(cells) > 1 else ""
+                    description = cells[5].get_text(strip=True) if len(cells) > 5 else ""
+                    class_type = cells[6].get_text(strip=True) if len(cells) > 6 else ""
 
-            logger.debug(f"  Found {len(decisions)} decisions")
-            return decisions
+                    if not accession or accession in seen_accessions:
+                        continue
 
-        except Exception as e:
-            logger.error(f"Failed to list decisions: {e}")
-            return []
+                    # Filter for relevant documents
+                    desc_lower = description.lower()
+                    if not (
+                        any(kw in desc_lower for kw in relevance_keywords)
+                        or "Order" in class_type
+                    ):
+                        continue
+
+                    seen_accessions.add(accession)
+
+                    # Extract file links from the last cell
+                    file_links = []
+                    files_cell = cells[-1]
+                    for link in files_cell.find_all("a", href=True):
+                        href = link.get("href", "")
+                        if ".pdf" in href or ".html" in href:
+                            file_links.append(urljoin(self.elibrary_url, href))
+
+                    decision_id = f"ferc_{accession.split()[0] if accession else keyword[:10]}"
+                    decisions.append({
+                        "decision_id": decision_id,
+                        "title": description[:200],
+                        "url": file_links[0] if file_links else search_url,
+                        "subject": "Rate Case or Project Order",
+                        "accession": accession,
+                        "class_type": class_type,
+                    })
+
+            except Exception as e:
+                logger.warning(f"FERC eLibrary search failed for '{keyword}': {e}")
+                continue
+
+        logger.debug(f"  Found {len(decisions)} decisions")
+        return decisions
 
     def download_decision(self, decision_id: str) -> Optional[str]:
         """

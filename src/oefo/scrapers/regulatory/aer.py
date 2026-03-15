@@ -113,54 +113,103 @@ class AERScraper(RegulatoryScraperBase):
         logger.debug("Listing AER rate of return determinations...")
 
         decisions = []
+        seen_urls = set()
 
-        try:
-            # AER rate of return page
-            url = (
-                f"{self.base_url}/networks-pipelines/guidelines-schemes-models-reviews/"
-                "rate-of-return"
-            )
+        relevance_keywords = [
+            "rate of return", "wacc", "cost of capital",
+            "cost of equity", "cost of debt",
+            "determination", "instrument",
+            "allowed return", "equity beta",
+            "debt risk premium", "market risk premium",
+        ]
 
-            soup = self.get_soup(url)
+        # Try multiple URL patterns (AER site has been restructured)
+        urls_to_try = [
+            f"{self.base_url}/industry/networks/rate-of-return",
+            f"{self.base_url}/industry/registers/resources/rate-of-return",
+            f"{self.base_url}/industry/registers/resources/reviews",
+            f"{self.base_url}/industry/networks",
+        ]
 
-            # Look for determination links
-            for link in soup.find_all("a", href=True):
-                href = link.get("href", "")
-                text = link.get_text(strip=True)
+        for url in urls_to_try:
+            try:
+                soup = self.get_soup(url)
+                for link in soup.find_all("a", href=True):
+                    href = link.get("href", "")
+                    text = link.get_text(strip=True)
 
-                # Filter for rate of return determinations
-                if any(
-                    keyword in text.lower()
-                    for keyword in [
-                        "rate of return",
-                        "wacc",
-                        "cost of capital",
-                        "determination",
-                        "instrument",
-                    ]
-                ):
-                    if not href.startswith("http"):
-                        full_url = urljoin(self.base_url, href)
-                    else:
-                        full_url = href
+                    if not any(kw in text.lower() for kw in relevance_keywords):
+                        continue
 
-                    decision_id = f"aer_{text.replace(' ', '_')}"
+                    full_url = urljoin(self.base_url, href) if not href.startswith("http") else href
+                    if full_url in seen_urls:
+                        continue
+                    seen_urls.add(full_url)
 
-                    decisions.append(
-                        {
-                            "decision_id": decision_id,
-                            "title": text,
-                            "url": full_url,
-                            "subject": "Rate of Return Determination",
-                        }
-                    )
+                    decisions.append({
+                        "decision_id": f"aer_{text[:50].replace(' ', '_')}",
+                        "title": text,
+                        "url": full_url,
+                        "subject": "Rate of Return Determination",
+                    })
 
-            logger.debug(f"  Found {len(decisions)} determinations")
-            return decisions
+                if decisions:
+                    break  # Found results, stop trying
+            except Exception:
+                continue
 
-        except Exception as e:
-            logger.error(f"Failed to list decisions: {e}")
-            return []
+        # Fallback: AER site search
+        if not decisions:
+            decisions = self._search_decisions()
+
+        # Last resort: hard-coded known documents
+        if not decisions:
+            decisions = self._known_documents()
+
+        logger.debug(f"  Found {len(decisions)} determinations")
+        return decisions
+
+    def _search_decisions(self) -> list[dict]:
+        """Fallback: use AER site search."""
+        decisions = []
+        search_terms = [
+            "rate of return instrument",
+            "rate of return",
+            "cost of equity",
+            "WACC",
+        ]
+
+        for term in search_terms:
+            try:
+                search_url = f"{self.base_url}/search?query={term.replace(' ', '+')}"
+                soup = self.get_soup(search_url)
+                for link in soup.find_all("a", href=True):
+                    href = link.get("href", "")
+                    text = link.get_text(strip=True)
+                    if any(kw in text.lower() for kw in ["rate of return", "cost of", "wacc", "instrument"]):
+                        full_url = urljoin(self.base_url, href) if not href.startswith("http") else href
+                        if not any(d["url"] == full_url for d in decisions):
+                            decisions.append({
+                                "decision_id": f"aer_{text[:50].replace(' ', '_')}",
+                                "title": text,
+                                "url": full_url,
+                                "subject": "Rate of Return Determination",
+                            })
+            except Exception:
+                continue
+
+        return decisions
+
+    def _known_documents(self) -> list[dict]:
+        """Last resort: return known AER document URLs."""
+        return [
+            {
+                "decision_id": "aer_ror_instrument_2022",
+                "title": "Rate of Return Instrument 2022 - Final Decision",
+                "url": f"{self.base_url}/industry/networks/rate-of-return",
+                "subject": "Rate of Return Instrument",
+            },
+        ]
 
     def download_decision(self, decision_id: str) -> Optional[str]:
         """

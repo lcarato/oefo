@@ -105,33 +105,117 @@ class EBRDScraper(BaseScraper):
         logger.info(f"EBRD scraping complete. Downloaded {len(documents)} documents.")
         return documents
 
-    def download_master_csv(self) -> Path:
-        """
-        Download EBRD master project CSV.
+    # Search queries for comprehensive energy project coverage
+    SEARCH_QUERIES = [
+        "energy power renewable project",
+        "wind solar hydro project",
+        "power generation financing",
+        "electricity transmission distribution",
+        "cost of capital energy",
+        "project finance energy",
+    ]
 
-        EBRD publishes a downloadable CSV list at:
-        https://www.ebrd.com/projects (with export option)
+    def _search_projects_api(self, query: str, page: int = 1) -> dict:
+        """
+        Search EBRD projects using the internal AEM search servlet.
+
+        Args:
+            query: Search keyword(s)
+            page: Page number (starts at 1)
 
         Returns:
-            Path to downloaded CSV file
+            JSON response dict with resultCount and searchResult arrays
         """
-        logger.info("Downloading EBRD master project CSV...")
+        search_url = f"{self.base_url}/bin/ebrd_dxp/ebrdsearchservlet"
+        params = {
+            "searchKey": query,
+            "inCorrectSearchKey": "none",
+            "currentPage": str(page),
+            "sortBy": "most-relevant",
+            "filters": "",
+            "pageTypeFilters": "",
+            "startDate": "",
+            "endDate": "",
+            "currentPageUrl": "/content/ebrd_dxp/uk/en/home/search/jcr:content/root/container/ebrd_search",
+            "filterCount": "0",
+            "IsLoggedIn": "false",
+            "isAlumni": "false",
+            "isBeeps": "false",
+        }
 
-        # EBRD CSV export URL (this is a template; actual URL may vary)
-        csv_url = "https://www.ebrd.com/documents/projects/export.csv"
+        response = self.session.get(search_url, params=params, timeout=30)
+        response.raise_for_status()
+        return response.json()
 
-        try:
-            csv_path = self.download_file(csv_url, "ebrd_projects_master.csv")
-            return csv_path
+    def download_master_csv(self) -> Path:
+        """
+        Build EBRD energy project list via search servlet API.
 
-        except Exception as e:
-            logger.error(f"Failed to download master CSV: {e}")
-            # Try alternative approach: scrape project page
-            return self._scrape_project_list()
+        Uses the EBRD internal search API to find energy sector projects,
+        then saves results as CSV for downstream filtering.
+
+        Returns:
+            Path to CSV file with project data
+        """
+        logger.info("Building EBRD project list via search API...")
+
+        projects = []
+        seen_paths = set()
+
+        for query in self.SEARCH_QUERIES:
+            try:
+                data = self._search_projects_api(query)
+                for result in data.get("searchResult", []):
+                    path = result.get("pagePath", "")
+                    tags = result.get("tags", "")
+                    label = result.get("label", "")
+                    title = result.get("title", "")
+
+                    if path in seen_paths:
+                        continue
+
+                    # Filter for energy project PSDs
+                    is_project = "project/psd" in tags or label == "Project"
+                    is_energy = (
+                        "sectors/energy" in tags
+                        or any(kw in title.lower() for kw in [
+                            "power", "energy", "renewable", "solar", "wind",
+                            "hydro", "electricity", "grid", "generation",
+                        ])
+                    )
+
+                    if is_project or is_energy:
+                        seen_paths.add(path)
+                        # Convert AEM internal path to public URL
+                        public_url = self.base_url + path.replace(
+                            "/content/ebrd_dxp/uk/en", ""
+                        )
+                        projects.append({
+                            "Project Name": title,
+                            "Project URL": public_url,
+                            "Date": result.get("publishDate", ""),
+                            "Sector": "Energy",
+                            "Tags": tags,
+                        })
+
+                logger.debug(f"  Query '{query}': found {len(data.get('searchResult', []))} results")
+
+            except Exception as e:
+                logger.warning(f"EBRD search failed for '{query}': {e}")
+                continue
+
+        # Save to CSV
+        csv_path = self.output_dir / "ebrd_projects_api.csv"
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        df = pd.DataFrame(projects)
+        df.to_csv(csv_path, index=False)
+
+        logger.info(f"Built EBRD project list: {len(projects)} energy projects")
+        return csv_path
 
     def _scrape_project_list(self) -> Path:
         """
-        Fallback: scrape project list from web page if CSV unavailable.
+        Fallback: scrape project list from web page if API unavailable.
 
         Returns:
             Path to CSV file with scraped data
@@ -139,43 +223,30 @@ class EBRDScraper(BaseScraper):
         logger.warning("Using fallback project list scraping...")
 
         projects = []
-        search_url = f"{self.base_url}/projects"
-
+        # Try the search API with a simpler approach
         try:
-            soup = self.get_soup(search_url)
-
-            # Extract project information from page
-            for row in soup.find_all("tr"):
-                cols = row.find_all("td")
-                if len(cols) >= 3:
-                    project_name = cols[0].get_text(strip=True)
-                    country = cols[1].get_text(strip=True)
-                    sector = cols[2].get_text(strip=True)
-
-                    # Try to find project URL
-                    link = cols[0].find("a")
-                    project_url = urljoin(self.base_url, link["href"]) if link else None
-
-                    projects.append(
-                        {
-                            "Project Name": project_name,
-                            "Country": country,
-                            "Sector": sector,
-                            "Project URL": project_url,
-                        }
-                    )
-
-            # Save to CSV
-            csv_path = self.output_dir / "ebrd_projects_fallback.csv"
-            df = pd.DataFrame(projects)
-            df.to_csv(csv_path, index=False)
-
-            logger.info(f"Saved {len(projects)} projects to {csv_path}")
-            return csv_path
-
+            data = self._search_projects_api("energy")
+            for result in data.get("searchResult", []):
+                path = result.get("pagePath", "")
+                public_url = self.base_url + path.replace(
+                    "/content/ebrd_dxp/uk/en", ""
+                )
+                projects.append({
+                    "Project Name": result.get("title", ""),
+                    "Country": "",
+                    "Sector": "Energy",
+                    "Project URL": public_url,
+                })
         except Exception as e:
             logger.error(f"Fallback scraping failed: {e}")
-            raise
+
+        csv_path = self.output_dir / "ebrd_projects_fallback.csv"
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        df = pd.DataFrame(projects)
+        df.to_csv(csv_path, index=False)
+
+        logger.info(f"Saved {len(projects)} projects to {csv_path}")
+        return csv_path
 
     def filter_energy_projects(self, csv_path: Path) -> pd.DataFrame:
         """
@@ -283,14 +354,19 @@ class EBRDScraper(BaseScraper):
             soup = self.get_soup(project_url)
 
             # Look for PSD or summary PDF link
+            # EBRD serves PDFs from /dam/ paths (AEM Digital Asset Manager)
             pdf_link = None
             for link in soup.find_all("a", href=True):
                 href = link.get("href", "")
                 text = link.get_text(strip=True).upper()
 
-                if ("PSD" in text or "SUMMARY" in text) and href.endswith(".pdf"):
-                    pdf_link = href
-                    break
+                if href.endswith(".pdf") or "/dam/" in href:
+                    # Prefer PSD/Summary documents
+                    if "PSD" in text or "SUMMARY" in text or "PROJECT" in text:
+                        pdf_link = href
+                        break
+                    elif not pdf_link:
+                        pdf_link = href  # Keep first PDF as fallback
 
             if not pdf_link:
                 logger.warning(f"  No PSD found for {project_url}")
