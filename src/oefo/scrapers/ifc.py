@@ -13,8 +13,11 @@ environmental/social disclosure documents which contain detailed project
 financing information.
 """
 
+import json
 import logging
+import re
 import time
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urljoin
 
@@ -46,6 +49,38 @@ class IFCScraper(BaseScraper):
             rate_limit=1.0,
         )
         self.api_base = "https://disclosuresservice.ifc.org"
+        self.sitemap_url = "https://disclosures.ifc.org/project-detail.xml"
+
+    def _get_sitemap_urls(self, sitemap_url: str, filter_pattern: str = None) -> list[str]:
+        """Fetch and parse sitemap XML for URLs matching a pattern."""
+        try:
+            response = self.session.get(sitemap_url, timeout=60)
+            response.raise_for_status()
+            urls = re.findall(r'<loc>(.*?)</loc>', response.text)
+            if filter_pattern:
+                urls = [u for u in urls if re.search(filter_pattern, u)]
+            return urls
+        except Exception as e:
+            logger.warning(f"Sitemap fetch failed for {sitemap_url}: {e}")
+            return []
+
+    def _extract_project_numbers_from_sitemap(self) -> list[str]:
+        """Extract AS-SII project numbers from sitemap URLs."""
+        urls = self._get_sitemap_urls(
+            self.sitemap_url,
+            filter_pattern=r"/AS-SII/"
+        )
+        project_numbers = []
+        seen = set()
+        for url in urls:
+            # URL pattern: /project-detail/AS-SII/{number}/{slug}
+            match = re.search(r"/AS-SII/(\d+)", url)
+            if match:
+                pn = match.group(1)
+                if pn not in seen:
+                    seen.add(pn)
+                    project_numbers.append(pn)
+        return project_numbers
 
     def scrape(self) -> list[RawDocument]:
         """
@@ -159,11 +194,11 @@ class IFCScraper(BaseScraper):
         status: Optional[str] = None,
     ) -> list[str]:
         """
-        Search for IFC projects using the backend REST API.
+        Search for IFC projects using sitemap + REST API.
 
-        The IFC disclosure site is an Angular SPA — HTML scraping only
-        gets the shell. This method uses the REST API at
-        disclosuresservice.ifc.org instead.
+        Primary: Parse sitemap for AS-SII project URLs (3,638 projects).
+        Complement: Landing page API for recent projects.
+        Filter for energy sector via API metadata.
 
         Args:
             sector: Project sector (e.g., "energy")
@@ -172,62 +207,60 @@ class IFCScraper(BaseScraper):
         Returns:
             List of project numbers (used as identifiers)
         """
-        logger.debug(f"Searching for {sector} sector projects via IFC API...")
+        logger.debug(f"Searching for {sector} sector projects...")
 
         project_numbers = []
         seen = set()
 
-        # Strategy 1: Landing page API (recent projects)
+        # Strategy 1: Sitemap-based discovery (primary — instant, complete)
+        sitemap_pns = self._extract_project_numbers_from_sitemap()
+        logger.info(f"  Sitemap: found {len(sitemap_pns)} AS-SII project numbers")
+
+        if sector == "energy" and sitemap_pns:
+            # Filter for energy by checking API metadata in batches
+            energy_keywords = ["power", "energy", "infrastructure", "renewable",
+                               "electricity", "solar", "wind", "hydro", "gas"]
+            for pn in sitemap_pns:
+                if pn in seen:
+                    continue
+                try:
+                    detail = self._get_project_detail(pn)
+                    industry = (detail.get("Industry") or "").lower()
+                    sector_val = (detail.get("Sector") or "").lower()
+                    description = (
+                        detail.get("ProjectOverView", {}).get("Project_Description", "")
+                        or ""
+                    ).lower()
+                    combined = f"{industry} {sector_val} {description[:500]}"
+                    if any(kw in combined for kw in energy_keywords):
+                        seen.add(pn)
+                        project_numbers.append(pn)
+                except Exception:
+                    pass
+                # Cap at 200 energy projects to avoid API overload
+                if len(project_numbers) >= 200:
+                    break
+        else:
+            # No sector filter — return all sitemap projects
+            for pn in sitemap_pns:
+                if pn not in seen:
+                    seen.add(pn)
+                    project_numbers.append(pn)
+
+        logger.debug(f"  After sitemap filtering: {len(project_numbers)} projects")
+
+        # Strategy 2: Landing page API (complement — recent projects)
         landing_projects = self._get_landing_projects()
         for proj in landing_projects:
             pn = str(proj.get("ProjectNumber", ""))
             industry = (proj.get("Industry") or "").lower()
             if pn and pn not in seen:
-                # Filter for energy/power if sector specified
                 if sector == "energy" and not any(
                     kw in industry for kw in ["power", "energy", "infrastructure"]
                 ):
                     continue
                 seen.add(pn)
                 project_numbers.append(pn)
-
-        logger.debug(f"  Landing API: {len(project_numbers)} projects")
-
-        # Strategy 2: Enterprise search POST
-        search_results = self._search_projects_api()
-        for item in search_results:
-            pn = str(
-                item.get("ProjectNumber")
-                or item.get("projectNumber")
-                or ""
-            )
-            if pn and pn not in seen:
-                seen.add(pn)
-                project_numbers.append(pn)
-
-        logger.debug(f"  After search API: {len(project_numbers)} projects total")
-
-        # Strategy 3: Fallback — brute-force validate recent project IDs
-        if len(project_numbers) < 10:
-            logger.info("  Using fallback: validating recent project IDs...")
-            validate_url = f"{self.api_base}/api/ProjectAccess/validateProjectUrl"
-            for pn_int in range(52000, 49000, -1):
-                pn = str(pn_int)
-                if pn in seen:
-                    continue
-                try:
-                    resp = self.session.get(
-                        validate_url,
-                        params={"ProjectNumber": pn, "documentType": "SII"},
-                        timeout=10,
-                    )
-                    if resp.status_code == 200:
-                        seen.add(pn)
-                        project_numbers.append(pn)
-                except Exception:
-                    continue
-                if len(project_numbers) >= 50:
-                    break
 
         logger.info(f"Found {len(project_numbers)} IFC projects")
         return project_numbers
@@ -294,24 +327,32 @@ class IFCScraper(BaseScraper):
                 except Exception as e:
                     logger.debug(f"  Failed to download {doc_url}: {e}")
 
-            # If no documents from API, try the project page HTML as fallback
+            # If no PDF documents, save project metadata as JSON
             if not doc_paths:
-                project_url = f"{self.base_url}/project-detail/SII/{project_number}"
-                try:
-                    soup = self.get_soup(project_url)
-                    for link in soup.find_all("a", href=True):
-                        href = link.get("href", "")
-                        if href.endswith(".pdf") or "pdf" in href.lower():
-                            doc_url = urljoin(self.base_url, href)
-                            filename = f"ifc_{project_number}_{int(time.time())}.pdf"
-                            try:
-                                filepath = self.download_pdf(doc_url, filename)
-                                if filepath:
-                                    doc_paths.append(filepath)
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
+                description_html = (
+                    detail.get("ProjectOverView", {}).get("Project_Description", "")
+                    or ""
+                )
+                if description_html:
+                    json_data = {
+                        "project_number": project_number,
+                        "project_name": detail.get("ProjectName", ""),
+                        "country": detail.get("Country", ""),
+                        "industry": detail.get("Industry", ""),
+                        "sector": detail.get("Sector", ""),
+                        "status": detail.get("Status", ""),
+                        "disclosed_date": detail.get("DisclosedDate", ""),
+                        "description_html": description_html,
+                    }
+                    json_filename = f"ifc_{project_number}_metadata.json"
+                    json_path = Path(self.output_dir) / json_filename
+                    json_path.parent.mkdir(parents=True, exist_ok=True)
+                    json_path.write_text(
+                        json.dumps(json_data, indent=2, ensure_ascii=False),
+                        encoding="utf-8",
+                    )
+                    doc_paths.append(str(json_path))
+                    logger.debug(f"  Saved project metadata JSON: {json_path}")
 
         except Exception as e:
             logger.error(f"Error downloading documents for {project_number}: {e}")

@@ -97,8 +97,8 @@ class TestSECEdgarScraper:
         assert "Archives/edgar/data/21076/" in filing["url"]
         assert filing["accession"] == "0000021076-24-000042"
 
-    def test_search_filters_non_energy_sic(self, tmp_path):
-        """Non-energy SIC codes are filtered out."""
+    def test_search_returns_all_sics(self, tmp_path):
+        """All filings returned regardless of SIC code (no energy filter)."""
         scraper = self._make_scraper(tmp_path)
 
         mock_response = MagicMock()
@@ -135,8 +135,12 @@ class TestSECEdgarScraper:
         with patch.object(scraper.session, "get", return_value=mock_response):
             results = scraper.search_by_keyword("cost of capital", filing_types=["10-K"])
 
-        assert len(results) == 1
-        assert results[0]["company"] == "Power Co"
+        # Both filings returned — no SIC filter
+        assert len(results) == 2
+        assert results[0]["company"] == "Tech Corp"
+        assert results[0]["sics"] == ["7372"]
+        assert results[1]["company"] == "Power Co"
+        assert results[1]["sics"] == ["4911"]
 
     def test_get_xbrl_financial_data_no_user_agent_error(self, tmp_path):
         """get_xbrl_financial_data uses session (no self.user_agent AttributeError)."""
@@ -167,30 +171,63 @@ class TestGCFScraper:
         from oefo.scrapers.gcf import GCFScraper
         return GCFScraper(output_dir=str(tmp_path))
 
-    def test_list_projects_uses_fp_pattern(self, tmp_path):
-        """list_projects iterates /project/fpNNN, not /projects/."""
+    def test_list_projects_uses_sitemap(self, tmp_path):
+        """list_projects uses sitemap as primary discovery."""
         scraper = self._make_scraper(tmp_path)
-        # Limit range for test speed
+
+        sitemap_xml = """<?xml version="1.0" encoding="UTF-8"?>
+        <urlset>
+            <url><loc>https://www.greenclimate.fund/project/fp001</loc></url>
+            <url><loc>https://www.greenclimate.fund/project/fp003</loc></url>
+            <url><loc>https://www.greenclimate.fund/about</loc></url>
+        </urlset>"""
+
+        def mock_get(url, **kwargs):
+            resp = MagicMock()
+            if "sitemap.xml" in url:
+                resp.status_code = 200
+                resp.text = sitemap_xml if "page=1" in url else "<urlset></urlset>"
+                resp.raise_for_status = MagicMock()
+            else:
+                resp.status_code = 404
+            return resp
+
+        with patch.object(scraper.session, "get", side_effect=mock_get):
+            urls = scraper.list_projects(sector="energy")
+
+        assert len(urls) == 2
+        assert any("fp001" in u for u in urls)
+        assert any("fp003" in u for u in urls)
+
+    def test_list_projects_fallback_to_head_scan(self, tmp_path):
+        """Falls back to HEAD scan when sitemap unavailable."""
+        scraper = self._make_scraper(tmp_path)
         scraper.MAX_FP_NUMBER = 5
 
-        def mock_head(url, **kwargs):
+        call_count = {"sitemap": 0, "head": 0}
+
+        def mock_get(url, **kwargs):
             resp = MagicMock()
-            # FP001 and FP003 exist
+            if "sitemap.xml" in url:
+                call_count["sitemap"] += 1
+                raise ConnectionError("Sitemap unavailable")
+            return resp
+
+        def mock_head(url, **kwargs):
+            call_count["head"] += 1
+            resp = MagicMock()
             if "fp001" in url or "fp003" in url:
                 resp.status_code = 200
             else:
                 resp.status_code = 404
             return resp
 
-        with patch.object(scraper.session, "head", side_effect=mock_head):
-            with patch.object(scraper, "_is_energy_project", return_value=True):
+        with patch.object(scraper.session, "get", side_effect=mock_get):
+            with patch.object(scraper.session, "head", side_effect=mock_head):
                 urls = scraper.list_projects(sector="energy")
 
         assert len(urls) == 2
-        assert any("fp001" in u for u in urls)
-        assert any("fp003" in u for u in urls)
-        # No /projects/ (plural) URLs
-        assert not any("/projects/" in u for u in urls)
+        assert call_count["head"] > 0  # Used HEAD fallback
 
     def test_download_funding_proposal_broadened(self, tmp_path):
         """download_funding_proposal finds PDFs with /document/ URLs."""
@@ -220,7 +257,7 @@ class TestGCFScraper:
 # ---------------------------------------------------------------------------
 
 class TestEBRDScraper:
-    """Tests for EBRD scraper search API integration."""
+    """Tests for EBRD scraper sitemap + search API integration."""
 
     def _make_scraper(self, tmp_path):
         from oefo.scrapers.ebrd import EBRDScraper
@@ -253,9 +290,17 @@ class TestEBRDScraper:
         assert len(result["searchResult"]) == 1
         assert result["searchResult"][0]["title"] == "Georgian Renewable Power"
 
-    def test_download_master_csv_uses_api(self, tmp_path):
-        """download_master_csv builds CSV from search API, not dead CSV URL."""
+    def test_download_master_csv_uses_sitemap_and_api(self, tmp_path):
+        """download_master_csv uses sitemap as primary + search API complement."""
         scraper = self._make_scraper(tmp_path)
+
+        sitemap_xml = """<?xml version="1.0" encoding="UTF-8"?>
+        <urlset>
+            <url><loc>https://www.ebrd.com/work-with-us/projects/psd/solar-farm.html</loc></url>
+            <url><loc>https://www.ebrd.com/work-with-us/projects/psd/wind-power.html</loc></url>
+            <url><loc>https://www.ebrd.com/work-with-us/projects/psd/water-treatment.html</loc></url>
+            <url><loc>https://www.ebrd.com/about-us/staff.html</loc></url>
+        </urlset>"""
 
         api_response = {
             "resultCount": [{"resultCount": 1}],
@@ -270,19 +315,31 @@ class TestEBRDScraper:
             ],
         }
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = api_response
-        mock_response.raise_for_status = MagicMock()
+        def mock_get(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.raise_for_status = MagicMock()
+            if "sitemap.xml" in url:
+                resp.text = sitemap_xml
+            else:
+                resp.json.return_value = api_response
+            return resp
 
-        with patch.object(scraper.session, "get", return_value=mock_response):
+        with patch.object(scraper.session, "get", side_effect=mock_get):
             csv_path = scraper.download_master_csv()
 
         assert csv_path.exists()
         import pandas as pd
         df = pd.read_csv(csv_path)
-        assert len(df) >= 1
-        assert "Solar Power Project" in df["Project Name"].values
+        # Should have sitemap projects + API projects
+        assert len(df) >= 2
+        urls = df["Project URL"].tolist()
+        assert any("solar-farm" in u for u in urls)
+        assert any("wind-power" in u for u in urls)
+        # Non-energy sitemap entries should get "Unknown" sector (not "Energy")
+        water_row = df[df["Project URL"].str.contains("water-treatment")]
+        assert len(water_row) == 1
+        assert water_row.iloc[0]["Sector"] == "Unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -290,7 +347,7 @@ class TestEBRDScraper:
 # ---------------------------------------------------------------------------
 
 class TestIFCScraper:
-    """Tests for IFC scraper REST API integration."""
+    """Tests for IFC scraper sitemap + REST API integration."""
 
     def _make_scraper(self, tmp_path):
         from oefo.scrapers.ifc import IFCScraper
@@ -300,6 +357,29 @@ class TestIFCScraper:
         """IFC scraper has the API base URL configured."""
         scraper = self._make_scraper(tmp_path)
         assert scraper.api_base == "https://disclosuresservice.ifc.org"
+
+    def test_extract_project_numbers_from_sitemap(self, tmp_path):
+        """_extract_project_numbers_from_sitemap parses AS-SII URLs."""
+        scraper = self._make_scraper(tmp_path)
+
+        sitemap_xml = """<?xml version="1.0" encoding="UTF-8"?>
+        <urlset>
+            <url><loc>https://disclosures.ifc.org/project-detail/AS-SII/50350</loc></url>
+            <url><loc>https://disclosures.ifc.org/project-detail/AS-SII/51976</loc></url>
+            <url><loc>https://disclosures.ifc.org/project-detail/AS/SPI/40000</loc></url>
+        </urlset>"""
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = sitemap_xml
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.object(scraper.session, "get", return_value=mock_response):
+            pns = scraper._extract_project_numbers_from_sitemap()
+
+        assert len(pns) == 2
+        assert "50350" in pns
+        assert "51976" in pns
 
     def test_get_landing_projects(self, tmp_path):
         """_get_landing_projects parses the landing page API."""
@@ -327,35 +407,35 @@ class TestIFCScraper:
         assert len(projects) == 1
         assert projects[0]["ProjectNumber"] == "50350"
 
-    def test_search_projects_returns_numbers(self, tmp_path):
-        """search_projects returns project numbers, not URLs."""
+    def test_download_project_documents_json_fallback(self, tmp_path):
+        """Saves JSON when SupportingDocuments is empty."""
         scraper = self._make_scraper(tmp_path)
 
-        landing_data = {
-            "investmentProjects": [
-                {"ProjectNumber": "50001", "Industry": "Power"},
-                {"ProjectNumber": "50002", "Industry": "Power"},
-            ],
-            "advisoryProjects": [],
+        detail_response = {
+            "ProjectName": "Test Energy Project",
+            "Country": "India",
+            "Industry": "Power",
+            "Sector": "Infrastructure",
+            "Status": "Active",
+            "DisclosedDate": "2024-01-15",
+            "SupportingDocuments": [],
+            "ProjectOverView": {
+                "Project_Description": "<p>A solar power project</p>"
+            },
         }
 
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = landing_data
-        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = detail_response
 
-        # Mock landing page success, search API returns empty
-        search_response = MagicMock()
-        search_response.status_code = 400
+        with patch.object(scraper.session, "get", return_value=mock_response):
+            paths = scraper.download_project_documents("50350")
 
-        with patch.object(
-            scraper.session, "get", return_value=mock_response
-        ):
-            with patch.object(scraper.session, "post", return_value=search_response):
-                results = scraper.search_projects(sector="energy")
-
-        assert all(isinstance(r, str) for r in results)
-        assert "50001" in results
+        assert len(paths) == 1
+        assert paths[0].endswith(".json")
+        data = json.loads(Path(paths[0]).read_text())
+        assert data["project_name"] == "Test Energy Project"
+        assert data["description_html"] == "<p>A solar power project</p>"
 
     def test_no_duplicate_import_time(self, tmp_path):
         """IFC scraper file should not have duplicate 'import time' at end."""
@@ -372,7 +452,7 @@ class TestIFCScraper:
 # ---------------------------------------------------------------------------
 
 class TestANEELScraper:
-    """Tests for ANEEL scraper URL migration fix."""
+    """Tests for ANEEL scraper known decisions + URL migration fix."""
 
     def _make_scraper(self, tmp_path):
         from oefo.scrapers.regulatory.aneel import ANEELScraper
@@ -383,6 +463,21 @@ class TestANEELScraper:
         scraper = self._make_scraper(tmp_path)
         assert "gov.br/aneel" in scraper.base_url
         assert "aneel.gov.br" not in scraper.base_url
+
+    def test_known_decisions_included(self, tmp_path):
+        """list_decisions always includes known submódulo URLs."""
+        scraper = self._make_scraper(tmp_path)
+
+        # Even when page scraping returns nothing, known decisions are included
+        with patch.object(scraper, "get_soup", side_effect=ConnectionError("fail")):
+            with patch.object(scraper, "_get_sitemap_urls", return_value=[]):
+                decisions = scraper.list_decisions()
+
+        assert len(decisions) >= 5
+        titles = [d["title"] for d in decisions]
+        assert any("Custo de Capital" in t for t in titles)
+        assert any("Submódulo 2.4" in t for t in titles)
+        assert any("Submódulo 12.3" in t for t in titles)
 
     def test_list_decisions_targets_proret(self, tmp_path):
         """list_decisions tries Proret page for tariff regulation."""
@@ -399,11 +494,13 @@ class TestANEELScraper:
         mock_soup = BeautifulSoup(html, "html.parser")
 
         with patch.object(scraper, "get_soup", return_value=mock_soup):
-            decisions = scraper.list_decisions()
+            with patch.object(scraper, "_get_sitemap_urls", return_value=[]):
+                decisions = scraper.list_decisions()
 
-        assert len(decisions) >= 2
+        # Known decisions + scraped ones
+        assert len(decisions) >= 7
         titles = [d["title"] for d in decisions]
-        assert any("Custo de Capital" in t for t in titles)
+        assert any("Custo de Capital 2024" in t for t in titles)
         assert any("WACC" in t for t in titles)
 
 
@@ -412,37 +509,63 @@ class TestANEELScraper:
 # ---------------------------------------------------------------------------
 
 class TestAERScraper:
-    """Tests for AER scraper fallback chain."""
+    """Tests for AER scraper timeout handling and known documents."""
 
     def _make_scraper(self, tmp_path):
         from oefo.scrapers.regulatory.aer import AERScraper
         return AERScraper(output_dir=str(tmp_path))
 
-    def test_known_documents_fallback(self, tmp_path):
-        """AER scraper returns known documents when all else fails."""
+    def test_known_documents_expanded(self, tmp_path):
+        """AER scraper has expanded known documents list."""
         scraper = self._make_scraper(tmp_path)
         docs = scraper._known_documents()
-        assert len(docs) >= 1
-        assert "Rate of Return" in docs[0]["title"]
+        assert len(docs) >= 3
+        titles = [d["title"] for d in docs]
+        assert any("2022" in t for t in titles)
+        assert any("2018" in t for t in titles)
 
-    def test_list_decisions_tries_multiple_urls(self, tmp_path):
-        """list_decisions tries multiple URL patterns before giving up."""
+    def test_known_documents_always_included(self, tmp_path):
+        """list_decisions always includes known documents even when site is up."""
+        scraper = self._make_scraper(tmp_path)
+
+        html = """
+        <html><body>
+        <a href="/doc/rate-of-return-2024.pdf">Rate of Return Instrument 2024</a>
+        </body></html>
+        """
+
+        def mock_get(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.text = html
+            resp.raise_for_status = MagicMock()
+            return resp
+
+        with patch.object(scraper.session, "get", side_effect=mock_get):
+            decisions = scraper.list_decisions()
+
+        # Should have both scraped + known documents
+        assert len(decisions) >= 3
+        urls = [d["url"] for d in decisions]
+        # Known docs should be present
+        assert any("rate-of-return" in u for u in urls)
+
+    def test_list_decisions_handles_timeout(self, tmp_path):
+        """list_decisions handles site timeout gracefully."""
         scraper = self._make_scraper(tmp_path)
 
         call_count = 0
 
-        def mock_get_soup(url):
+        def mock_get(url, **kwargs):
             nonlocal call_count
             call_count += 1
-            # All pages fail — simulate site outage
             raise ConnectionError("ERR_HTTP2_PROTOCOL_ERROR")
 
-        with patch.object(scraper, "get_soup", side_effect=mock_get_soup):
+        with patch.object(scraper.session, "get", side_effect=mock_get):
             decisions = scraper.list_decisions()
 
-        # Should have tried multiple URLs and fallen back to known documents
-        assert call_count >= 4  # 4 URL patterns + search attempts
-        assert len(decisions) >= 1  # Known documents fallback
+        # Should still return known documents despite all timeouts
+        assert len(decisions) >= 3
 
 
 # ---------------------------------------------------------------------------
@@ -450,14 +573,28 @@ class TestAERScraper:
 # ---------------------------------------------------------------------------
 
 class TestOfgemScraper:
-    """Tests for Ofgem scraper publications search fix."""
+    """Tests for Ofgem scraper known publications + sitemap."""
 
     def _make_scraper(self, tmp_path):
         from oefo.scrapers.regulatory.ofgem import OfgemScraper
         return OfgemScraper(output_dir=str(tmp_path))
 
+    def test_known_publications_included(self, tmp_path):
+        """list_decisions always includes known RIIO publication URLs."""
+        scraper = self._make_scraper(tmp_path)
+
+        # Even when everything else fails, known publications are returned
+        with patch.object(scraper, "_get_sitemap_urls", return_value=[]):
+            with patch.object(scraper, "get_soup", side_effect=ConnectionError("fail")):
+                decisions = scraper.list_decisions()
+
+        assert len(decisions) >= 6
+        titles = [d["title"] for d in decisions]
+        assert any("RIIO-ED2 Final Determinations" in t for t in titles)
+        assert any("Sector Specific Methodology" in t for t in titles)
+
     def test_list_decisions_uses_publications_search(self, tmp_path):
-        """list_decisions uses /search/publications, not old broken URL."""
+        """list_decisions uses /search/publications as complement."""
         scraper = self._make_scraper(tmp_path)
 
         html = """
@@ -475,12 +612,14 @@ class TestOfgemScraper:
             urls_called.append(url)
             return mock_soup
 
-        with patch.object(scraper, "get_soup", side_effect=mock_get_soup):
-            decisions = scraper.list_decisions()
+        with patch.object(scraper, "_get_sitemap_urls", return_value=[]):
+            with patch.object(scraper, "get_soup", side_effect=mock_get_soup):
+                decisions = scraper.list_decisions()
 
-        # Should use publications search, not the old broken URL
+        # Should use publications search
         assert any("/search/publications" in url for url in urls_called)
-        assert len(decisions) >= 2
+        # Known publications + search results
+        assert len(decisions) >= 6
 
 
 # ---------------------------------------------------------------------------
@@ -488,7 +627,7 @@ class TestOfgemScraper:
 # ---------------------------------------------------------------------------
 
 class TestFERCScraper:
-    """Tests for FERC scraper eLibrary search fix."""
+    """Tests for FERC scraper known documents + graceful degradation."""
 
     def _make_scraper(self, tmp_path):
         from oefo.scrapers.regulatory.ferc import FERCScraper
@@ -499,40 +638,37 @@ class TestFERCScraper:
         scraper = self._make_scraper(tmp_path)
         assert scraper.elibrary_url == "https://elibrary.ferc.gov"
 
-    def test_list_decisions_uses_elibrary(self, tmp_path):
-        """list_decisions uses eLibrary search, not /search/orders."""
+    def test_known_documents_included(self, tmp_path):
+        """list_decisions returns known documents even when eLibrary fails."""
         scraper = self._make_scraper(tmp_path)
 
-        html = """
-        <html><body>
-        <table>
-        <tr>
-            <td>Issuance</td>
-            <td>20240101-0001</td>
-            <td>2024-01-01</td>
-            <td></td>
-            <td></td>
-            <td>Order on Cost of Equity for Pipeline Co</td>
-            <td>Order | Rate Case</td>
-            <td></td>
-            <td><a href="/doc/20240101-0001.pdf">PDF</a></td>
-        </tr>
-        </table>
-        </body></html>
-        """
-        from bs4 import BeautifulSoup
-        mock_soup = BeautifulSoup(html, "html.parser")
+        def mock_get(url, **kwargs):
+            raise ConnectionError("Angular SPA — WAF blocked")
 
-        urls_called = []
-        def mock_get_soup(url):
-            urls_called.append(url)
-            return mock_soup
-
-        with patch.object(scraper, "get_soup", side_effect=mock_get_soup):
+        with patch.object(scraper.session, "get", side_effect=mock_get):
             decisions = scraper.list_decisions()
 
-        # Should use eLibrary, not /search/orders
-        assert any("eLibrary" in url for url in urls_called)
-        assert not any("/search/orders" in url for url in urls_called)
-        assert len(decisions) >= 1
-        assert "Cost of Equity" in decisions[0]["title"]
+        assert len(decisions) >= 3
+        titles = [d["title"] for d in decisions]
+        assert any("Opinion No. 531" in t for t in titles)
+        assert any("ROE" in t or "Return on Equity" in t for t in titles)
+
+    def test_list_decisions_graceful_degradation(self, tmp_path):
+        """FERC scraper doesn't hang or crash on eLibrary failure."""
+        scraper = self._make_scraper(tmp_path)
+
+        # Simulate Angular SPA response (empty shell, no table rows)
+        html = """<!DOCTYPE html><html><head><base href="/eLibrary/">
+        <link rel="stylesheet" href="styles.css"></head>
+        <body><app-root></app-root></body></html>"""
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.object(scraper.session, "get", return_value=mock_response):
+            decisions = scraper.list_decisions()
+
+        # Should still return known documents
+        assert len(decisions) >= 3

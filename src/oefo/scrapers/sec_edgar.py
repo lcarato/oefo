@@ -202,11 +202,10 @@ class SECEdgarScraper(BaseScraper):
                 else:
                     filing_url = None
 
-                # Filter by energy SIC codes if available
-                sics = set(source.get("sics") or [])
-                is_energy = bool(sics & ENERGY_SIC_CODES) if sics else True
+                # Include SIC codes for optional downstream filtering
+                sics = list(source.get("sics") or [])
 
-                if filing_url and is_energy:
+                if filing_url:
                     filings.append(
                         {
                             "company": (source.get("display_names") or [None])[0],
@@ -215,6 +214,7 @@ class SECEdgarScraper(BaseScraper):
                             "date": source.get("file_date"),
                             "url": filing_url,
                             "accession": adsh,
+                            "sics": sics,
                         }
                     )
 

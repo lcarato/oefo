@@ -109,11 +109,67 @@ class ANEELScraper(RegulatoryScraperBase):
         logger.info(f"ANEEL scraping complete. Downloaded {len(documents)} documents.")
         return documents
 
+    def _get_sitemap_urls(self, sitemap_url: str, filter_pattern: str = None) -> list[str]:
+        """Fetch and parse sitemap XML for URLs matching a pattern."""
+        try:
+            response = self.session.get(sitemap_url, timeout=60)
+            response.raise_for_status()
+            urls = re.findall(r'<loc>(.*?)</loc>', response.text)
+            if filter_pattern:
+                urls = [u for u in urls if re.search(filter_pattern, u)]
+            return urls
+        except Exception as e:
+            logger.warning(f"Sitemap fetch failed for {sitemap_url}: {e}")
+            return []
+
+    def _known_decisions(self) -> list[dict]:
+        """Return known high-value ANEEL submódulo URLs."""
+        base = "https://www.gov.br/aneel/pt-br"
+        known = [
+            {
+                "decision_id": "aneel_submodulo_2_4",
+                "title": "Submódulo 2.4 – Custo de Capital (Distribuição)",
+                "url": f"{base}/centrais-de-conteudos/procedimentos-regulatorios/proret/submodulo-2-4",
+                "year": None,
+                "subject": "Cost of Capital / Tariff Review",
+            },
+            {
+                "decision_id": "aneel_submodulo_2_3",
+                "title": "Submódulo 2.3 – Base de Remuneração Regulatória",
+                "url": f"{base}/centrais-de-conteudos/procedimentos-regulatorios/proret/submodulo-2-3",
+                "year": None,
+                "subject": "Regulatory Asset Base",
+            },
+            {
+                "decision_id": "aneel_submodulo_9_1",
+                "title": "Submódulo 9.1 – Revisão Tarifária Periódica das Transmissoras",
+                "url": f"{base}/centrais-de-conteudos/procedimentos-regulatorios/proret/submodulo-9-1",
+                "year": None,
+                "subject": "Transmission Tariff Review",
+            },
+            {
+                "decision_id": "aneel_submodulo_12_3",
+                "title": "Submódulo 12.3 – Custo de Capital da Geração",
+                "url": f"{base}/centrais-de-conteudos/procedimentos-regulatorios/proret/submodulo-12-3",
+                "year": None,
+                "subject": "Generation Cost of Capital",
+            },
+            {
+                "decision_id": "aneel_modulo_2",
+                "title": "Módulo 2 – Revisão Tarifária Periódica das Concessionárias de Distribuição",
+                "url": f"{base}/centrais-de-conteudos/procedimentos-regulatorios/proret/modulo-2-revisao-tarifaria-periodica",
+                "year": None,
+                "subject": "Distribution Tariff Review",
+            },
+        ]
+        return known
+
     def list_decisions(self) -> list[dict]:
         """
         List ANEEL tariff review decisions.
 
-        Searches ANEEL's tariff review page for decisions.
+        Combines: known submódulo URLs (primary) + Proret page scraping
+        + sitemap complement.
 
         Returns:
             List of decision metadata dicts
@@ -122,6 +178,14 @@ class ANEELScraper(RegulatoryScraperBase):
 
         decisions = []
         seen_urls = set()
+
+        # Strategy 1: Known high-value submódulo URLs (primary)
+        for d in self._known_decisions():
+            if d["url"] not in seen_urls:
+                seen_urls.add(d["url"])
+                decisions.append(d)
+
+        logger.debug(f"  Known decisions: {len(decisions)}")
 
         # Portuguese WACC keywords
         wacc_keywords_pt = [
@@ -134,7 +198,7 @@ class ANEELScraper(RegulatoryScraperBase):
             "revisão tarifária", "reajuste",
         ]
 
-        # Try multiple pages (site structure may vary)
+        # Strategy 2: Proret page scraping (complement)
         urls_to_try = [
             f"{self.base_url}/centrais-de-conteudos/procedimentos-regulatorios/proret",
             f"{self.base_url}/assuntos/tarifas",
@@ -173,7 +237,27 @@ class ANEELScraper(RegulatoryScraperBase):
                 logger.debug(f"Failed to fetch {page_url}: {e}")
                 continue
 
-        logger.debug(f"  Found {len(decisions)} decisions")
+        # Strategy 3: Sitemap complement
+        sitemap_keywords = r"(?i)(wacc|tarif|capital|custo|remuneracao|proret)"
+        sitemap_urls = self._get_sitemap_urls(
+            "https://www.gov.br/aneel/pt-br/sitemap.xml",
+            filter_pattern=sitemap_keywords,
+        )
+        for url in sitemap_urls:
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            slug = url.rstrip("/").split("/")[-1]
+            title = slug.replace("-", " ").title()
+            decisions.append({
+                "decision_id": f"aneel_sitemap_{slug[:50]}",
+                "title": title,
+                "url": url,
+                "year": None,
+                "subject": "Cost of Capital / Tariff Review",
+            })
+
+        logger.debug(f"  Found {len(decisions)} decisions total")
         return decisions
 
     def download_decision(self, decision_id: str) -> Optional[str]:

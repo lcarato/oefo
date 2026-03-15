@@ -133,7 +133,12 @@ class AERScraper(RegulatoryScraperBase):
 
         for url in urls_to_try:
             try:
-                soup = self.get_soup(url)
+                # Use short timeout — AER site has HTTP/2 outage issues
+                resp = self.session.get(url, timeout=10)
+                resp.raise_for_status()
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(resp.text, "html.parser")
+
                 for link in soup.find_all("a", href=True):
                     href = link.get("href", "")
                     text = link.get_text(strip=True)
@@ -158,31 +163,35 @@ class AERScraper(RegulatoryScraperBase):
             except Exception:
                 continue
 
-        # Fallback: AER site search
+        # Fallback: AER site search (also with short timeout)
         if not decisions:
             decisions = self._search_decisions()
 
-        # Last resort: hard-coded known documents
-        if not decisions:
-            decisions = self._known_documents()
+        # Always include known documents to ensure minimum coverage
+        known = self._known_documents()
+        for d in known:
+            if d["url"] not in seen_urls:
+                seen_urls.add(d["url"])
+                decisions.append(d)
 
         logger.debug(f"  Found {len(decisions)} determinations")
         return decisions
 
     def _search_decisions(self) -> list[dict]:
-        """Fallback: use AER site search."""
+        """Fallback: use AER site search with short timeout."""
         decisions = []
         search_terms = [
             "rate of return instrument",
             "rate of return",
-            "cost of equity",
-            "WACC",
         ]
 
         for term in search_terms:
             try:
                 search_url = f"{self.base_url}/search?query={term.replace(' ', '+')}"
-                soup = self.get_soup(search_url)
+                resp = self.session.get(search_url, timeout=10)
+                resp.raise_for_status()
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(resp.text, "html.parser")
                 for link in soup.find_all("a", href=True):
                     href = link.get("href", "")
                     text = link.get_text(strip=True)
@@ -201,13 +210,25 @@ class AERScraper(RegulatoryScraperBase):
         return decisions
 
     def _known_documents(self) -> list[dict]:
-        """Last resort: return known AER document URLs."""
+        """Return known AER rate of return document URLs."""
         return [
             {
                 "decision_id": "aer_ror_instrument_2022",
                 "title": "Rate of Return Instrument 2022 - Final Decision",
                 "url": f"{self.base_url}/industry/networks/rate-of-return",
                 "subject": "Rate of Return Instrument",
+            },
+            {
+                "decision_id": "aer_ror_instrument_2018",
+                "title": "Rate of Return Instrument 2018",
+                "url": f"{self.base_url}/system/files/2020-06/Rate%20of%20Return%20Instrument%20-%20December%202018.pdf",
+                "subject": "Rate of Return Instrument",
+            },
+            {
+                "decision_id": "aer_ror_final_decision_2023",
+                "title": "Final Decision on Rate of Return 2022-23",
+                "url": f"{self.base_url}/industry/networks/rate-of-return/rate-of-return-instrument-2022",
+                "subject": "Rate of Return Final Decision",
             },
         ]
 
@@ -227,9 +248,11 @@ class AERScraper(RegulatoryScraperBase):
         logger.debug(f"Downloading determination: {decision_id}")
 
         try:
-            decisions = self.list_decisions()
+            if not hasattr(self, "_decisions_cache"):
+                self._decisions_cache = self.list_decisions()
+
             decision = next(
-                (d for d in decisions if d.get("decision_id") == decision_id),
+                (d for d in self._decisions_cache if d.get("decision_id") == decision_id),
                 None,
             )
 
@@ -238,7 +261,26 @@ class AERScraper(RegulatoryScraperBase):
                 return None
 
             decision_url = decision.get("url")
-            soup = self.get_soup(decision_url)
+
+            # Direct PDF download for known PDF URLs
+            if decision_url.endswith(".pdf"):
+                filename = f"aer_{decision_id}_{int(time.time())}.pdf"
+                try:
+                    filepath = self.download_pdf(decision_url, filename)
+                    logger.info(f"  Downloaded: {filepath}")
+                    return str(filepath)
+                except Exception as e:
+                    logger.warning(f"  Direct PDF failed: {e}")
+                    return None
+
+            try:
+                resp = self.session.get(decision_url, timeout=10)
+                resp.raise_for_status()
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(resp.text, "html.parser")
+            except Exception as e:
+                logger.warning(f"Could not fetch decision page (timeout/error): {e}")
+                return None
 
             # Look for main determination document (PDF)
             pdf_link = None

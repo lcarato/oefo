@@ -12,6 +12,7 @@ CSV contains: project name, country, sector, status, financing amount, URLs.
 
 import csv
 import logging
+import re
 import tempfile
 import time
 from io import StringIO
@@ -147,62 +148,113 @@ class EBRDScraper(BaseScraper):
         response.raise_for_status()
         return response.json()
 
+    def _get_sitemap_urls(self, sitemap_url: str, filter_pattern: str = None) -> list[str]:
+        """Fetch and parse sitemap XML for URLs matching a pattern."""
+        try:
+            response = self.session.get(sitemap_url, timeout=60)
+            response.raise_for_status()
+            urls = re.findall(r'<loc>(.*?)</loc>', response.text)
+            if filter_pattern:
+                urls = [u for u in urls if re.search(filter_pattern, u)]
+            return urls
+        except Exception as e:
+            logger.warning(f"Sitemap fetch failed for {sitemap_url}: {e}")
+            return []
+
     def download_master_csv(self) -> Path:
         """
-        Build EBRD energy project list via search servlet API.
+        Build EBRD energy project list via sitemap + search API.
 
-        Uses the EBRD internal search API to find energy sector projects,
-        then saves results as CSV for downstream filtering.
+        Primary: Parse sitemap for /projects/psd/ URLs (5,642 projects).
+        Complement: Search API with pagination (up to 10 pages per query).
+        Merges and deduplicates both sources.
 
         Returns:
             Path to CSV file with project data
         """
-        logger.info("Building EBRD project list via search API...")
+        logger.info("Building EBRD project list via sitemap + search API...")
 
         projects = []
-        seen_paths = set()
+        seen_urls = set()
 
+        # Strategy 1: Sitemap-based discovery (primary)
+        sitemap_urls = self._get_sitemap_urls(
+            "https://www.ebrd.com/sitemap.xml",
+            filter_pattern=r"/projects/psd/"
+        )
+        logger.info(f"  Sitemap: found {len(sitemap_urls)} PSD project URLs")
+
+        energy_keywords = [
+            "power", "energy", "renewable", "solar", "wind",
+            "hydro", "electricity", "grid", "generation",
+            "gas", "turbine", "geothermal", "biomass",
+        ]
+
+        for url in sitemap_urls:
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            # Extract project name from URL slug
+            slug = url.rstrip("/").split("/")[-1]
+            name = slug.replace("-", " ").title() if slug else "EBRD Project"
+            # Only tag as Energy if slug contains energy keywords
+            slug_lower = slug.lower()
+            sector = "Energy" if any(kw in slug_lower for kw in energy_keywords) else "Unknown"
+            projects.append({
+                "Project Name": name,
+                "Project URL": url,
+                "Date": "",
+                "Sector": sector,
+                "Tags": "sitemap/psd",
+            })
+
+        logger.info(f"  After sitemap: {len(projects)} projects")
+
+        # Strategy 2: Search API with pagination (complement)
         for query in self.SEARCH_QUERIES:
-            try:
-                data = self._search_projects_api(query)
-                for result in data.get("searchResult", []):
-                    path = result.get("pagePath", "")
-                    tags = result.get("tags", "")
-                    label = result.get("label", "")
-                    title = result.get("title", "")
+            for page in range(1, 11):  # Up to 10 pages per query
+                try:
+                    data = self._search_projects_api(query, page=page)
+                    results = data.get("searchResult", [])
+                    if not results:
+                        break  # No more pages
 
-                    if path in seen_paths:
-                        continue
+                    for result in results:
+                        path = result.get("pagePath", "")
+                        tags = result.get("tags", "")
+                        label = result.get("label", "")
+                        title = result.get("title", "")
 
-                    # Filter for energy project PSDs
-                    is_project = "project/psd" in tags or label == "Project"
-                    is_energy = (
-                        "sectors/energy" in tags
-                        or any(kw in title.lower() for kw in [
-                            "power", "energy", "renewable", "solar", "wind",
-                            "hydro", "electricity", "grid", "generation",
-                        ])
-                    )
-
-                    if is_project or is_energy:
-                        seen_paths.add(path)
                         # Convert AEM internal path to public URL
                         public_url = self.base_url + path.replace(
                             "/content/ebrd_dxp/uk/en", ""
                         )
-                        projects.append({
-                            "Project Name": title,
-                            "Project URL": public_url,
-                            "Date": result.get("publishDate", ""),
-                            "Sector": "Energy",
-                            "Tags": tags,
-                        })
 
-                logger.debug(f"  Query '{query}': found {len(data.get('searchResult', []))} results")
+                        if public_url in seen_urls:
+                            continue
 
-            except Exception as e:
-                logger.warning(f"EBRD search failed for '{query}': {e}")
-                continue
+                        # Filter for energy project PSDs
+                        is_project = "project/psd" in tags or label == "Project"
+                        is_energy = (
+                            "sectors/energy" in tags
+                            or any(kw in title.lower() for kw in energy_keywords)
+                        )
+
+                        if is_project or is_energy:
+                            seen_urls.add(public_url)
+                            projects.append({
+                                "Project Name": title,
+                                "Project URL": public_url,
+                                "Date": result.get("publishDate", ""),
+                                "Sector": "Energy",
+                                "Tags": tags,
+                            })
+
+                    logger.debug(f"  Query '{query}' page {page}: {len(results)} results")
+
+                except Exception as e:
+                    logger.warning(f"EBRD search failed for '{query}' page {page}: {e}")
+                    break
 
         # Save to CSV
         csv_path = self.output_dir / "ebrd_projects_api.csv"
