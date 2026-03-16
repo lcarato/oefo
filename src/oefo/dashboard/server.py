@@ -184,8 +184,9 @@ class DashboardServer:
                 await self._send_response(writer, 200, "text/html", html)
             else:
                 await self._send_response(writer, 404, "text/plain", "Not Found")
-        except (asyncio.TimeoutError, ConnectionResetError, BrokenPipeError):
-            pass
+        except (asyncio.TimeoutError, asyncio.IncompleteReadError,
+                ConnectionResetError, BrokenPipeError, OSError):
+            pass  # Health probes and dropped connections — ignore silently
         except Exception:
             logger.exception("Error handling request")
         finally:

@@ -4,7 +4,7 @@
     {
       "name": "oefo-dashboard",
       "runtimeExecutable": "/Users/lucianocaratori/miniconda3/bin/python",
-      "runtimeArgs": ["-m", "oefo.dashboard.server", "--demo", "--port", "8770"],
+      "runtimeArgs": ["-m", "oefo", "dashboard", "--port", "8770", "--public"],
       "port": 8770
     }
   ]

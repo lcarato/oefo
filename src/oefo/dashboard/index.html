@@ -85,6 +85,80 @@
         .status-flagged  { background: rgba(251, 146, 60, 0.2); color: #fed7aa; }
         .status-rejected { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
 
+        /* Download progress styles */
+        .dl-source-row {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid rgba(71, 85, 105, 0.3);
+        }
+        .dl-source-row:last-child { border-bottom: none; }
+        .dl-source-label {
+            min-width: 100px;
+            font-weight: 600;
+            font-size: 0.875rem;
+        }
+        .dl-progress-bar {
+            flex: 1;
+            height: 24px;
+            background: rgba(30, 41, 59, 0.6);
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+        }
+        .dl-progress-fill {
+            height: 100%;
+            border-radius: 12px;
+            transition: width 0.6s ease;
+            display: flex;
+            align-items: center;
+            padding-left: 8px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #fff;
+            min-width: fit-content;
+        }
+        .dl-progress-fill.downloading {
+            background: linear-gradient(90deg, #0ea5e9 0%, #06b6d4 100%);
+            animation: progress-pulse 2s ease-in-out infinite;
+        }
+        .dl-progress-fill.complete {
+            background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+        }
+        .dl-progress-fill.pending {
+            background: rgba(71, 85, 105, 0.5);
+        }
+        @keyframes progress-pulse {
+            0%, 100% { opacity: 0.85; }
+            50% { opacity: 1; }
+        }
+        .dl-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .dl-status-dot.downloading {
+            background: #06b6d4;
+            box-shadow: 0 0 8px rgba(6, 182, 212, 0.6);
+            animation: pulse-green 2s infinite;
+        }
+        .dl-status-dot.complete { background: #22c55e; }
+        .dl-status-dot.pending { background: #475569; }
+        .dl-file-count {
+            min-width: 80px;
+            text-align: right;
+            font-size: 0.875rem;
+            color: #94a3b8;
+        }
+        .dl-size {
+            min-width: 70px;
+            text-align: right;
+            font-size: 0.75rem;
+            color: #64748b;
+        }
+
         /* Live streaming indicator */
         .stream-status {
             display: flex;
@@ -333,6 +407,70 @@
             );
         }
 
+        // ---- Download Progress Component ----------------------------------------
+        function DownloadProgress({ data }) {
+            const dl = data.download_progress || {};
+            const sources = dl.sources || [];
+            const totalFiles = dl.total_files || 0;
+            const totalSize = dl.total_size_mb || 0;
+            const activeDL = dl.active_downloads || 0;
+            const completedSrc = dl.completed_sources || 0;
+
+            if (sources.length === 0) return null;
+
+            // Find max files for relative bar widths
+            const maxFiles = Math.max(...sources.map(s => s.files_downloaded), 1);
+
+            return React.createElement('div', { className: 'card mb-6' },
+                React.createElement('div', {
+                    className: 'p-4 border-b border-slate-700 flex items-center justify-between'
+                },
+                    React.createElement('h3', { className: 'text-lg font-bold' }, 'Download Progress'),
+                    React.createElement('div', { className: 'flex items-center gap-4 text-sm' },
+                        React.createElement('span', { style: { color: '#94a3b8' } },
+                            totalFiles.toLocaleString() + ' files'),
+                        React.createElement('span', { style: { color: '#64748b' } },
+                            totalSize.toFixed(1) + ' MB'),
+                        activeDL > 0
+                            ? React.createElement('span', {
+                                className: 'status-badge',
+                                style: { background: 'rgba(6, 182, 212, 0.2)', color: '#67e8f9' }
+                            }, activeDL + ' downloading')
+                            : React.createElement('span', {
+                                className: 'status-badge',
+                                style: { background: 'rgba(34, 197, 94, 0.2)', color: '#86efac' }
+                            }, completedSrc + '/' + sources.length + ' complete')
+                    )
+                ),
+                React.createElement('div', null,
+                    sources.map(function(src) {
+                        const pct = maxFiles > 0 ? Math.max((src.files_downloaded / maxFiles) * 100, 2) : 0;
+                        const barLabel = src.files_downloaded + ' files';
+
+                        return React.createElement('div', {
+                            key: src.id,
+                            className: 'dl-source-row'
+                        },
+                            React.createElement('div', { className: 'dl-status-dot ' + src.status }),
+                            React.createElement('div', { className: 'dl-source-label' }, src.label),
+                            React.createElement('div', { className: 'dl-progress-bar' },
+                                React.createElement('div', {
+                                    className: 'dl-progress-fill ' + src.status,
+                                    style: { width: (src.files_downloaded > 0 ? pct : 0) + '%' }
+                                },
+                                    src.files_downloaded > 0 ? barLabel : ''
+                                )
+                            ),
+                            React.createElement('div', { className: 'dl-file-count' }, barLabel),
+                            React.createElement('div', { className: 'dl-size' },
+                                src.size_mb > 0 ? src.size_mb.toFixed(1) + ' MB' : '—'
+                            )
+                        );
+                    })
+                )
+            );
+        }
+
         // ---- Pipeline Monitor Tab ----------------------------------------------
         function PipelineMonitor({ data, updated }) {
             const d = data;
@@ -367,6 +505,9 @@
             const meanScore = qc.mean_score != null ? qc.mean_score.toFixed(3) : '—';
 
             return React.createElement('div', { className: 'space-y-6' },
+                // Download Progress (live per-source)
+                React.createElement(DownloadProgress, { data: d }),
+
                 // KPIs
                 React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4' },
                     React.createElement(KPICard, { label: 'Documents Scraped', value: (scraping.total_documents || 0).toLocaleString(), updated }),
