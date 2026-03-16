@@ -648,10 +648,10 @@ class TestFERCScraper:
         with patch.object(scraper.session, "get", side_effect=mock_get):
             decisions = scraper.list_decisions()
 
-        assert len(decisions) >= 3
+        assert len(decisions) >= 5
         titles = [d["title"] for d in decisions]
-        assert any("Rate Cases" in t or "Rate Case" in t for t in titles)
-        assert any("ROE" in t or "Return on Equity" in t or "RM20-10" in t for t in titles)
+        assert any("Opinion No. 531" in t for t in titles)
+        assert any("ROE" in t or "Return on Equity" in t for t in titles)
 
     def test_list_decisions_graceful_degradation(self, tmp_path):
         """FERC scraper doesn't hang or crash on eLibrary failure."""

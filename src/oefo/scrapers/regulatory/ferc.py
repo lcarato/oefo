@@ -110,11 +110,28 @@ class FERCScraper(RegulatoryScraperBase):
     def _known_documents(self) -> list[dict]:
         """Return known FERC orders/decisions with ROE determinations.
 
-        Note: FERC redesigned their site in 2025. The /media/ URLs no longer
-        work. We use the eLibrary accession-based URLs and landing pages
-        that are more stable across redesigns.
+        Note: FERC redesigned their site in 2025. The old /media/ URLs no
+        longer work. Direct PDFs use /sites/default/files/ pattern.
         """
         return [
+            {
+                "decision_id": "ferc_opinion_531",
+                "title": "Opinion No. 531 - Coakley et al. v. Bangor Hydro (ROE methodology, 147 FERC 61,234)",
+                "url": "https://www.ferc.gov/sites/default/files/2020-04/E-7_2.pdf",
+                "subject": "Return on Equity Methodology",
+            },
+            {
+                "decision_id": "ferc_opinion_569a",
+                "title": "Opinion No. 569-A - New England Transmission ROE (173 FERC 61,159)",
+                "url": "https://www.ferc.gov/sites/default/files/2020-11/11-2020-E-3.pdf",
+                "subject": "Return on Equity Determination",
+            },
+            {
+                "decision_id": "ferc_cost_of_service_manual",
+                "title": "Cost-of-Service Rate Manual (ROE/cost of capital methodology)",
+                "url": "https://www.ferc.gov/sites/default/files/2020-08/cost-of-service-manual.pdf",
+                "subject": "Cost of Service Rate Manual",
+            },
             {
                 "decision_id": "ferc_electric_rate_cases",
                 "title": "Electric Rate Cases - Cost of Equity Information",
@@ -122,15 +139,9 @@ class FERCScraper(RegulatoryScraperBase):
                 "subject": "Electric Rate Cases Overview",
             },
             {
-                "decision_id": "ferc_natural_gas_rate_cases",
-                "title": "Natural Gas Rate Cases - Cost of Capital",
-                "url": "https://www.ferc.gov/industries-data/natural-gas/industry-activities/natural-gas-rate-cases",
-                "subject": "Natural Gas Rate Cases Overview",
-            },
-            {
                 "decision_id": "ferc_roe_policy_statement",
-                "title": "Inquiry Regarding the Commission's Electric Transmission Incentives Policy (RM20-10)",
-                "url": "https://elibrary.ferc.gov/eLibrary/filelist?accession_number=20221117-3099",
+                "title": "FERC Revises Public Utility ROE Methodology (2020 Policy Statement)",
+                "url": "https://www.ferc.gov/news-events/news/ferc-revises-public-utility-roe-methodology-sets-policy-natural-gas-oil-pipelines",
                 "subject": "Return on Equity Policy",
             },
         ]
