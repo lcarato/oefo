@@ -54,11 +54,24 @@ class PipelineTracker:
     # Main entry points
     # ------------------------------------------------------------------
 
+    # Known source directories and their display names / expected totals
+    SOURCE_DIRS = {
+        "ebrd": {"label": "EBRD", "description": "European Bank for Reconstruction and Development"},
+        "ifc": {"label": "IFC", "description": "International Finance Corporation"},
+        "gcf": {"label": "GCF", "description": "Green Climate Fund"},
+        "sec": {"label": "SEC EDGAR", "description": "U.S. Securities and Exchange Commission"},
+        "aneel": {"label": "ANEEL", "description": "Agencia Nacional de Energia Eletrica (Brazil)"},
+        "ofgem": {"label": "Ofgem", "description": "Office of Gas and Electricity Markets (UK)"},
+        "ferc": {"label": "FERC", "description": "Federal Energy Regulatory Commission (US)"},
+        "aer": {"label": "AER", "description": "Australian Energy Regulator"},
+    }
+
     def collect(self) -> Dict[str, Any]:
         """Collect all metrics into a single dict."""
         snapshot = {
             "generated_at": datetime.utcnow().isoformat() + "Z",
             "pipeline_version": "0.1.0",
+            "download_progress": self._download_progress(),
             "scraping": self._scraping_metrics(),
             "extraction": self._extraction_metrics(),
             "qc": self._qc_metrics(),
@@ -82,6 +95,66 @@ class PipelineTracker:
     # ------------------------------------------------------------------
     # Section collectors
     # ------------------------------------------------------------------
+
+    def _download_progress(self) -> Dict:
+        """Count downloaded files per source directory, with live progress."""
+        sources = []
+        total_files = 0
+        total_size_mb = 0.0
+
+        for dir_name, meta in self.SOURCE_DIRS.items():
+            source_dir = self.raw_dir / dir_name
+            if not source_dir.exists():
+                sources.append({
+                    "id": dir_name,
+                    "label": meta["label"],
+                    "description": meta["description"],
+                    "files_downloaded": 0,
+                    "size_mb": 0.0,
+                    "status": "pending",
+                })
+                continue
+
+            # Count files (exclude hidden and temp files)
+            files = [
+                f for f in source_dir.iterdir()
+                if f.is_file() and not f.name.startswith(".")
+            ]
+            file_count = len(files)
+            size_mb = sum(f.stat().st_size for f in files) / (1024 * 1024)
+            total_files += file_count
+            total_size_mb += size_mb
+
+            # Determine status based on file count
+            if file_count == 0:
+                status = "pending"
+            else:
+                # Check if any file was modified in the last 60 seconds
+                import time as _time
+                now = _time.time()
+                recent = any((now - f.stat().st_mtime) < 60 for f in files)
+                status = "downloading" if recent else "complete"
+
+            sources.append({
+                "id": dir_name,
+                "label": meta["label"],
+                "description": meta["description"],
+                "files_downloaded": file_count,
+                "size_mb": round(size_mb, 1),
+                "status": status,
+            })
+
+        # Sort: downloading first, then by file count descending
+        status_order = {"downloading": 0, "complete": 1, "pending": 2}
+        sources.sort(key=lambda s: (status_order.get(s["status"], 9), -s["files_downloaded"]))
+
+        return {
+            "sources": sources,
+            "total_files": total_files,
+            "total_size_mb": round(total_size_mb, 1),
+            "active_downloads": sum(1 for s in sources if s["status"] == "downloading"),
+            "completed_sources": sum(1 for s in sources if s["status"] == "complete"),
+        }
 
     def _scraping_metrics(self) -> Dict:
         """Count raw documents per source, sizes, dates."""

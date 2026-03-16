@@ -364,11 +364,11 @@ def handle_scrape(args: argparse.Namespace) -> int:
         for source_name in sources:
             try:
                 print(f"  [{source_name}] Scraping...", end=" ", flush=True)
-                scraper = get_scraper(source_name)
-                documents = scraper.scrape(
+                scraper = get_scraper(
+                    source_name,
                     output_dir=str(output_dir / source_name.lower()),
-                    force=args.force
                 )
+                documents = scraper.scrape()
                 count = len(documents) if documents else 0
                 total_docs += count
                 print(f"✓ {count} documents downloaded")
