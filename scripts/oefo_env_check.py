@@ -29,8 +29,12 @@ def check_python_version() -> bool:
 
 def check_virtual_environment() -> bool:
     in_venv = hasattr(sys, 'real_prefix') or getattr(sys, 'base_prefix', sys.prefix) != sys.prefix
-    print(f"{'PASS' if in_venv else 'FAIL'} Virtual environment {'active' if in_venv else 'not active'}")
-    return in_venv
+    if in_venv:
+        print("PASS Virtual environment active")
+    else:
+        print("WARN Virtual environment not active (recommended for local development)")
+    # Return True always — venv is recommended, not required
+    return True
 
 
 def check_tool(tool: str, install_hint: str) -> bool:
