@@ -11,6 +11,7 @@ Provides:
 """
 
 import hashlib
+import json
 import logging
 import time
 from abc import ABC, abstractmethod
@@ -24,6 +25,7 @@ from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from ..exceptions import TransientError, PermanentError, classify_http_error
 from ..models import DocumentStatus, RawDocument, SourceType
 from ..config.settings import USER_AGENT
 
@@ -72,10 +74,13 @@ class BaseScraper(ABC):
         self.output_dir = Path(output_dir)
         self.rate_limit = rate_limit
         self.last_request_time = 0.0
-        self.document_store: set[str] = set()  # Content hashes
 
         # Create output directory if needed
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Persistent document store — survives across runs
+        self._hash_store_path = self.output_dir / ".document_hashes.json"
+        self.document_store: set[str] = self._load_document_store()
 
         # Configure session with retries
         self.session = self._create_session()
@@ -110,6 +115,27 @@ class BaseScraper(ABC):
 
         return session
 
+    def _load_document_store(self) -> set[str]:
+        """Load persisted content hashes from disk."""
+        if self._hash_store_path.exists():
+            try:
+                data = json.loads(self._hash_store_path.read_text())
+                hashes = set(data) if isinstance(data, list) else set()
+                logger.debug(f"Loaded {len(hashes)} hashes from {self._hash_store_path}")
+                return hashes
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Could not load hash store: {e}")
+        return set()
+
+    def _save_document_store(self) -> None:
+        """Persist content hashes to disk."""
+        try:
+            self._hash_store_path.write_text(
+                json.dumps(sorted(self.document_store), indent=0)
+            )
+        except OSError as e:
+            logger.warning(f"Could not save hash store: {e}")
+
     def get_page(self, url: str) -> requests.Response:
         """
         Fetch a web page with rate limiting and retries.
@@ -134,8 +160,30 @@ class BaseScraper(ABC):
         logger.debug(f"GET {url}")
         self.last_request_time = time.time()
 
-        response = self.session.get(url, timeout=30)
-        response.raise_for_status()
+        try:
+            response = self.session.get(url, timeout=30)
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            status_code = e.response.status_code if e.response is not None else 0
+            snippet = (e.response.text[:200] if e.response is not None else "")
+            raise classify_http_error(
+                status_code=status_code,
+                url=url,
+                source=self.name,
+                response_snippet=snippet,
+            ) from e
+        except requests.exceptions.Timeout as e:
+            raise TransientError(
+                f"Timeout fetching {url}",
+                source=self.name,
+                url=url,
+            ) from e
+        except requests.exceptions.ConnectionError as e:
+            raise TransientError(
+                f"Connection error for {url}: {e}",
+                source=self.name,
+                url=url,
+            ) from e
 
         return response
 
@@ -292,8 +340,12 @@ class BaseScraper(ABC):
         Returns:
             RawDocument metadata object
         """
+        filepath = Path(filepath) if isinstance(filepath, str) else filepath
         content_hash = self._compute_content_hash(filepath)
+        is_new = content_hash not in self.document_store
         self.document_store.add(content_hash)
+        if is_new:
+            self._save_document_store()
 
         file_size = filepath.stat().st_size
         mime_type = "application/pdf" if filepath.suffix == ".pdf" else "text/html"

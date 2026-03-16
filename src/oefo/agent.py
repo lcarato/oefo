@@ -36,6 +36,10 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
+from .metrics.health import SourceHealthScore, PipelineHealthScore
+from .metrics.ledger import RunLedger
+from .scrapers.probes import probe_all
+
 logger = logging.getLogger(__name__)
 
 
@@ -290,6 +294,10 @@ class PipelineAgent:
         self._final_run_dir: Optional[Path] = None
         self._outputs_run_dir: Optional[Path] = None
 
+        # Health tracking (wired to metrics/health.py and metrics/ledger.py)
+        self.pipeline_health = PipelineHealthScore(run_id=self.run_id)
+        self._ledger = RunLedger()
+
         if verbose:
             logging.basicConfig(
                 level=logging.DEBUG,
@@ -466,7 +474,7 @@ class PipelineAgent:
         )
 
     def _scrape(self) -> PhaseResult:
-        """Phase 2: Scrape data sources."""
+        """Phase 2: Scrape data sources with health tracking and probe preflight."""
         from oefo.scrapers import get_scraper
         from oefo.config.settings import RAW_DIR
 
@@ -475,11 +483,38 @@ class PipelineAgent:
         warnings = []
         total_docs = 0
 
-        print(f"\n  Phase 2: Scraping {len(self.sources)} source(s)...")
+        # ── Preflight probes ───────────────────────────────────────────
+        print(f"\n  Phase 2a: Probing {len(self.sources)} source(s)...")
+        try:
+            probe_results = probe_all(self.sources)
+            skip_sources = set()
+            for pr in probe_results:
+                icon = {"GREEN": "🟢", "YELLOW": "🟡", "RED": "🔴"}.get(pr.status, "⚪")
+                print(f"    {icon} {pr.source:<8} reach={'✓' if pr.reachable else '✗'}  "
+                      f"sitemap={'✓' if pr.sitemap_available else '—'}  "
+                      f"{pr.latency_ms:.0f}ms")
+                if pr.status == "RED":
+                    warnings.append(f"Probe {pr.source}: RED — {pr.error or 'unreachable'}")
+                    skip_sources.add(pr.source.lower())
+        except Exception as e:
+            logger.warning(f"Probe preflight failed (continuing anyway): {e}")
+            skip_sources = set()
+
+        # ── Scrape each source ─────────────────────────────────────────
+        print(f"\n  Phase 2b: Scraping {len(self.sources)} source(s)...")
 
         for source in self.sources:
             source_upper = source.upper()
             details["sources_attempted"].append(source)
+            source_health = SourceHealthScore(source_name=source)
+            source_start = time.time()
+
+            if source.lower() in skip_sources:
+                print(f"    [{source_upper}] SKIPPED (probe RED)")
+                source_health.decision = "CRASH"
+                source_health.decision_reason = "Probe returned RED"
+                self.pipeline_health.source_scores.append(source_health)
+                continue
 
             try:
                 print(f"    [{source_upper}] Scraping...", end=" ", flush=True)
@@ -493,15 +528,31 @@ class PipelineAgent:
                 details[f"docs_{source}"] = count
                 print(f"{count} documents")
 
+                source_health.discovery_count = count
+                source_health.download_count = count
+                source_health.decision = "KEEP" if count > 0 else "DISCARD"
+                source_health.decision_reason = (
+                    f"{count} docs" if count > 0 else "0 documents discovered"
+                )
+
             except Exception as e:
                 details["sources_failed"].append(f"{source}: {e}")
                 errors.append(f"Scrape {source_upper} failed: {e}")
                 print(f"FAILED ({e})")
 
+                source_health.record_error(e)
+                source_health.decision = "CRASH"
+                source_health.decision_reason = str(e)[:200]
+
+            source_health.duration_seconds = time.time() - source_start
+            self.pipeline_health.source_scores.append(source_health)
+
         details["total_documents"] = total_docs
         success = len(details["sources_succeeded"]) > 0 or total_docs > 0
 
-        print(f"    Total: {total_docs} documents from {len(details['sources_succeeded'])} sources")
+        # Print health summary
+        print(f"\n    {self.pipeline_health.summary_line()}")
+        print(f"\n{self.pipeline_health.detail_table()}")
 
         return PhaseResult(
             phase=PhaseName.SCRAPE,
@@ -899,12 +950,29 @@ class PipelineAgent:
         self.report.halt_reason = reason
 
     def _finalize(self) -> RunReport:
-        """Finalize the run report."""
+        """Finalize the run report and append to the run ledger."""
         self.report.end_time = datetime.now()
         self.report.overall_success = (
             not self.report.halted
             and all(pr.success for pr in self.report.phases)
         )
+
+        # Update pipeline health timing
+        self.pipeline_health.duration_seconds = self.report.duration_seconds
+
+        # Append to run ledger
+        try:
+            ledger_status = "HALTED" if self.report.halted else (
+                "SUCCESS" if self.report.overall_success else "PARTIAL"
+            )
+            self._ledger.append(
+                self.pipeline_health,
+                status=ledger_status,
+                description=f"{self.run_type.value} run",
+            )
+            logger.info(f"Run recorded in ledger: {self.run_id}")
+        except Exception as e:
+            logger.warning(f"Could not write to run ledger: {e}")
 
         # Print summary
         status = "SUCCESS" if self.report.overall_success else "COMPLETED WITH ISSUES"
@@ -913,6 +981,7 @@ class PipelineAgent:
 
         print(f"\n{'='*60}")
         print(f"  Pipeline Agent: {status}")
+        print(f"  Pipeline health: {self.pipeline_health.health_score:.2f}")
         print(f"  Duration: {self.report.duration_seconds:.1f}s")
         for pr in self.report.phases:
             icon = "OK" if pr.success else "FAIL"

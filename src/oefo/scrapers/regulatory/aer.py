@@ -26,6 +26,9 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
 from ...models import RawDocument, SourceType
 from .base import RegulatoryScraperBase
 
@@ -56,10 +59,17 @@ class AERScraper(RegulatoryScraperBase):
             rate_limit=1.0,
         )
         # Force HTTP/1.1 — AER site has intermittent HTTP/2 protocol issues
+        import urllib3
         self.session.headers.update({
             "Connection": "keep-alive",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         })
+        # Disable HTTP/2 by ensuring urllib3 uses HTTP/1.1 only
+        adapter = HTTPAdapter(
+            max_retries=Retry(total=3, backoff_factor=2.0, status_forcelist=[429, 500, 502, 503, 504]),
+        )
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
 
     def scrape(self) -> list[RawDocument]:
         """

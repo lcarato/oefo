@@ -201,16 +201,22 @@ def probe_source(source: str, timeout: float = 10.0) -> ProbeResult:
     return result
 
 
-def probe_all(timeout: float = 10.0) -> list[ProbeResult]:
-    """Run probes for all configured sources.
+def probe_all(sources: Optional[list[str]] = None, timeout: float = 10.0) -> list[ProbeResult]:
+    """Run probes for configured sources.
+
+    Args:
+        sources: Optional list of source names to probe. If None, probes all.
+        timeout: HTTP timeout per request in seconds.
 
     Returns:
         List of ProbeResult objects, sorted by status (RED first).
     """
+    targets = [s.upper() for s in sources] if sources else list(_SOURCE_CONFIG.keys())
     results = []
-    for source in _SOURCE_CONFIG:
-        logger.info(f"Probing {source}...")
-        results.append(probe_source(source, timeout=timeout))
+    for source in targets:
+        if source.upper() in _SOURCE_CONFIG:
+            logger.info(f"Probing {source}...")
+            results.append(probe_source(source, timeout=timeout))
 
     # Sort: RED first, then YELLOW, then GREEN
     order = {RED: 0, YELLOW: 1, GREEN: 2}
