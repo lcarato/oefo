@@ -55,6 +55,11 @@ class AERScraper(RegulatoryScraperBase):
             country_code="AUS",
             rate_limit=1.0,
         )
+        # Force HTTP/1.1 — AER site has intermittent HTTP/2 protocol issues
+        self.session.headers.update({
+            "Connection": "keep-alive",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        })
 
     def scrape(self) -> list[RawDocument]:
         """
@@ -219,16 +224,28 @@ class AERScraper(RegulatoryScraperBase):
                 "subject": "Rate of Return Instrument",
             },
             {
-                "decision_id": "aer_ror_instrument_2018",
-                "title": "Rate of Return Instrument 2018",
+                "decision_id": "aer_ror_instrument_2018_pdf",
+                "title": "Rate of Return Instrument - December 2018",
                 "url": f"{self.base_url}/system/files/2020-06/Rate%20of%20Return%20Instrument%20-%20December%202018.pdf",
                 "subject": "Rate of Return Instrument",
             },
             {
-                "decision_id": "aer_ror_final_decision_2023",
-                "title": "Final Decision on Rate of Return 2022-23",
+                "decision_id": "aer_ror_instrument_2022_page",
+                "title": "Rate of Return Instrument 2022 - Overview",
                 "url": f"{self.base_url}/industry/networks/rate-of-return/rate-of-return-instrument-2022",
                 "subject": "Rate of Return Final Decision",
+            },
+            {
+                "decision_id": "aer_ror_explanatory_statement_2022",
+                "title": "Rate of Return Instrument - Explanatory Statement 2022",
+                "url": f"{self.base_url}/system/files/2023-02/AER%20-%20Rate%20of%20return%20instrument%20-%20Explanatory%20Statement%20-%20February%202023.pdf",
+                "subject": "Rate of Return Explanatory Statement",
+            },
+            {
+                "decision_id": "aer_ror_overview_paper_2022",
+                "title": "Rate of Return - Overview Paper 2022",
+                "url": f"{self.base_url}/system/files/2022-06/AER%20-%20Rate%20of%20return%20-%20Overview%20paper%20-%20June%202022.pdf",
+                "subject": "Rate of Return Overview",
             },
         ]
 

@@ -351,7 +351,7 @@ class IFCScraper(BaseScraper):
                         json.dumps(json_data, indent=2, ensure_ascii=False),
                         encoding="utf-8",
                     )
-                    doc_paths.append(str(json_path))
+                    doc_paths.append(json_path)
                     logger.debug(f"  Saved project metadata JSON: {json_path}")
 
         except Exception as e:

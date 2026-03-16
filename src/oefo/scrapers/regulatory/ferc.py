@@ -108,24 +108,29 @@ class FERCScraper(RegulatoryScraperBase):
         return documents
 
     def _known_documents(self) -> list[dict]:
-        """Return known FERC orders/decisions with ROE determinations."""
+        """Return known FERC orders/decisions with ROE determinations.
+
+        Note: FERC redesigned their site in 2025. The /media/ URLs no longer
+        work. We use the eLibrary accession-based URLs and landing pages
+        that are more stable across redesigns.
+        """
         return [
             {
-                "decision_id": "ferc_opinion_531",
-                "title": "Opinion No. 531 - Coakley et al. v. Bangor Hydro (ROE methodology)",
-                "url": "https://www.ferc.gov/media/opinion-no-531",
-                "subject": "Return on Equity Methodology",
+                "decision_id": "ferc_electric_rate_cases",
+                "title": "Electric Rate Cases - Cost of Equity Information",
+                "url": "https://www.ferc.gov/industries-data/electric/industry-activities/electric-rate-cases",
+                "subject": "Electric Rate Cases Overview",
             },
             {
-                "decision_id": "ferc_opinion_569",
-                "title": "Opinion No. 569-A - New England Transmission ROE",
-                "url": "https://www.ferc.gov/media/opinion-no-569-a",
-                "subject": "Return on Equity Determination",
+                "decision_id": "ferc_natural_gas_rate_cases",
+                "title": "Natural Gas Rate Cases - Cost of Capital",
+                "url": "https://www.ferc.gov/industries-data/natural-gas/industry-activities/natural-gas-rate-cases",
+                "subject": "Natural Gas Rate Cases Overview",
             },
             {
-                "decision_id": "ferc_policy_statement_roe",
-                "title": "Policy Statement on Determining Return on Equity (2022)",
-                "url": "https://www.ferc.gov/media/e-2-rm20-10-000",
+                "decision_id": "ferc_roe_policy_statement",
+                "title": "Inquiry Regarding the Commission's Electric Transmission Incentives Policy (RM20-10)",
+                "url": "https://elibrary.ferc.gov/eLibrary/filelist?accession_number=20221117-3099",
                 "subject": "Return on Equity Policy",
             },
         ]

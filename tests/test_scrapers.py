@@ -432,7 +432,7 @@ class TestIFCScraper:
             paths = scraper.download_project_documents("50350")
 
         assert len(paths) == 1
-        assert paths[0].endswith(".json")
+        assert str(paths[0]).endswith(".json")
         data = json.loads(Path(paths[0]).read_text())
         assert data["project_name"] == "Test Energy Project"
         assert data["description_html"] == "<p>A solar power project</p>"
@@ -650,8 +650,8 @@ class TestFERCScraper:
 
         assert len(decisions) >= 3
         titles = [d["title"] for d in decisions]
-        assert any("Opinion No. 531" in t for t in titles)
-        assert any("ROE" in t or "Return on Equity" in t for t in titles)
+        assert any("Rate Cases" in t or "Rate Case" in t for t in titles)
+        assert any("ROE" in t or "Return on Equity" in t or "RM20-10" in t for t in titles)
 
     def test_list_decisions_graceful_degradation(self, tmp_path):
         """FERC scraper doesn't hang or crash on eLibrary failure."""

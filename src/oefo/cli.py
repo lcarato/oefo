@@ -338,6 +338,38 @@ Examples:
     )
     config_parser.set_defaults(func=handle_config)
 
+    # --- Probe command ---
+    probe_parser = subparsers.add_parser(
+        'probe',
+        help='Fast health check for scraper sources (~30s)'
+    )
+    probe_parser.add_argument(
+        'source',
+        nargs='?',
+        default='all',
+        help='Source to probe (default: all)'
+    )
+    probe_parser.add_argument(
+        '--timeout',
+        type=float,
+        default=10.0,
+        help='HTTP timeout per request in seconds (default: 10)'
+    )
+    probe_parser.set_defaults(func=handle_probe)
+
+    # --- Trend command ---
+    trend_parser = subparsers.add_parser(
+        'trend',
+        help='Show pipeline health trend from run ledger'
+    )
+    trend_parser.add_argument(
+        '-n', '--last',
+        type=int,
+        default=10,
+        help='Number of recent runs to show (default: 10)'
+    )
+    trend_parser.set_defaults(func=handle_trend)
+
     return parser
 
 
@@ -812,6 +844,45 @@ def handle_run(args: argparse.Namespace) -> int:
         if getattr(args, 'verbose', False):
             import traceback
             traceback.print_exc()
+        return 1
+
+
+def handle_probe(args: argparse.Namespace) -> int:
+    """Handle probe command — fast health check for scraper sources."""
+    try:
+        from .scrapers.probes import probe_source, probe_all, format_probe_table
+
+        print("OEFO Source Probes — checking source health...\n")
+
+        if args.source and args.source.lower() != "all":
+            results = [probe_source(args.source.upper(), timeout=args.timeout)]
+        else:
+            results = probe_all(timeout=args.timeout)
+
+        print(format_probe_table(results))
+        return 0
+
+    except Exception as e:
+        print(f"Error running probes: {e}", file=sys.stderr)
+        return 1
+
+
+def handle_trend(args: argparse.Namespace) -> int:
+    """Handle trend command — show pipeline health over recent runs."""
+    try:
+        from .metrics.ledger import RunLedger
+
+        ledger = RunLedger()
+        table = ledger.trend_table(n=args.last)
+        sparkline = ledger.health_sparkline(n=args.last)
+
+        print("OEFO Pipeline Health Trend\n")
+        print(table)
+        print(f"\nHealth trend: {sparkline}")
+        return 0
+
+    except Exception as e:
+        print(f"Error reading run ledger: {e}", file=sys.stderr)
         return 1
 
 
